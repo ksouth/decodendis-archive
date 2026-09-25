@@ -11,6 +11,9 @@ defaults:
   page_limit: 0             # stop after this many pages (0 = no limit)
 
 sites:
+  - url: https://decodendis.pplx.app/
+    name: decodendis
+
   # Examples; remove the # to use one.
   #
   # - url: https://www.example.gov.au

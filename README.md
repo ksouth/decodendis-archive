@@ -1,4 +1,8 @@
-# SCRAPE: website archiver template
+# NDIS Decoded archive
+
+Captures of https://decodendis.pplx.app, made with the [SCRAPE](https://github.com/ksouth/SCRAPE) website archiver template. Captures are under **Releases**.
+
+## About the archiver
 
 Archive whole websites for the record: every page as it looked, and every document they link to. List the sites in `sites.yaml`, commit, and GitHub Actions does the rest. Each capture is published as a GitHub release.
 
@@ -77,7 +81,3 @@ python -m unittest discover -s tests
 ```
 
 Capturing locally also needs Docker and the `gh` command-line tool: set `JOB` to one entry of `python -m archiver.plan`'s output and run `python -m archiver.run`.
-
-## Earlier work
-
-`archive/` holds an earlier search-engine prototype and why it was set aside. See `archive/README.md`.
