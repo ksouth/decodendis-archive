@@ -248,12 +248,19 @@ def _section(title: str, entries: List[Dict[str, Any]], document: bool = False, 
 
 
 def group_key(url: str, home_host: str) -> Tuple[int, str, str]:
+    """(0 = the site's own host, 1 = its subdomains, 2 = unrelated websites, host, first folder)."""
     parts = urlsplit(url)
     host = parts.netloc.lower()
     bare = lambda h: h[4:] if h.startswith("www.") else h
     segments = [s for s in parts.path.split("/") if s]
     folder = segments[0] if len(segments) > 1 else ""
-    return (0 if bare(host) == bare(home_host) else 1, host, folder)
+    if bare(host) == bare(home_host.lower()):
+        rank = 0
+    elif host.endswith("." + bare(home_host.lower())):
+        rank = 1
+    else:
+        rank = 2  # e.g. an embedded YouTube video the crawler captured with a page
+    return (rank, host, folder)
 
 
 def merge_parts(indexes: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -296,8 +303,10 @@ def render_page(indexes: List[Dict[str, Any]], dashboard_url: str) -> str:
         groups.setdefault(group_key(page["url"], home_host), []).append(page)
     if groups:
         sections.append("<h2>Other pages, by folder and subdomain</h2>")
-        for (other_host, host, folder), entries in sorted(groups.items()):
+        for (rank, host, folder), entries in sorted(groups.items()):
             label = f"{host}/{folder}/" if folder else f"{host}/ (top level)"
+            if rank == 2:
+                label = f"Embedded from other websites: {label}"
             entries.sort(key=lambda p: p["url"])
             sections.append(_section(label, entries, level="h3"))
     docs = index["documents"]

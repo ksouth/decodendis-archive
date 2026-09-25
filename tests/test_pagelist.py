@@ -45,6 +45,7 @@ class PageListTest(unittest.TestCase):
             ("https://www.example.org/news/two", "200 OK", html, page("News two")),
             ("https://www.example.org/contact", "200 OK", html, page("Contact")),
             ("https://blog.example.org/post", "200 OK", html, page("<script>x</script>Post")),
+            ("https://www.youtube.com/embed/abc", "200 OK", html, page("Video")),
             ("https://www.example.org/files/plan.pdf", "200 OK", [("Content-Type", "application/pdf")], b"%PDF-1.4 plan"),
             ("https://www.example.org/style.css", "200 OK", [("Content-Type", "text/css")], b"body{}"),
         ])
@@ -63,7 +64,7 @@ class PageListTest(unittest.TestCase):
     def test_scan_records_pages(self):
         titles = [p.title for p in self.scan.page_list]
         self.assertEqual(titles[0], "Example Home & More")
-        self.assertEqual(len(titles), 6)  # pages only, not the PDF or stylesheet
+        self.assertEqual(len(titles), 7)  # pages only, not the PDF or stylesheet
         self.assertEqual(self.scan.redirects["https://example.org/start"], "https://www.example.org/")
         self.assertEqual(self.scan.page_list[0].size, len(HOME))
 
@@ -101,7 +102,9 @@ class PageListTest(unittest.TestCase):
         html = pagelist.render_page([self.index()], "../../../")
         order = [html.index(s) for s in ("Home page (1)", "Linked from the home page (2)",
                                           "www.example.org/ (top level) (1)", "www.example.org/news/ (1)",
-                                          "blog.example.org/ (top level) (1)", "Documents (1)", "From this website (1)")]
+                                          "blog.example.org/ (top level) (1)",
+                                          "Embedded from other websites: www.youtube.com/embed/ (1)",
+                                          "Documents (1)", "From this website (1)")]
         self.assertEqual(order, sorted(order))
         self.assertIn("<strong>WACZ + Site</strong>", html)
         self.assertNotIn("<script>x</script>", html)  # page titles are escaped
@@ -112,7 +115,7 @@ class PageListTest(unittest.TestCase):
         two["pages"].append({**two["pages"][1], "url": "https://www.example.org/late", "title": "Late"})
         two["release_url"] = "https://github.com/me/r/releases/tag/t2"
         merged = pagelist.merge_parts([two, one])
-        self.assertEqual((merged["parts"], len(merged["pages"])), (2, 7))
+        self.assertEqual((merged["parts"], len(merged["pages"])), (2, 8))
         self.assertEqual(merged["home"], "https://www.example.org/")
         self.assertIn("part 2", pagelist.render_page([one, two], "../../../"))
 

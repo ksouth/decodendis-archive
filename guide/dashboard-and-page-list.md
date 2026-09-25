@@ -76,7 +76,7 @@ One page per capture, combining every part of it. It lists everything the captur
 
 1. **Home page**: the captured page for the site's starting address, following redirects and allowing for `www.` and a trailing slash. If none matches, the first page captured.
 2. **Linked from the home page**: pages the home page links to, in the order they appear on it.
-3. **Other pages, by folder and subdomain**: everything else, grouped by host and the first folder of the address (`www.example.org/news/`, `www.example.org/ (top level)`, `blog.example.org/ ...`). The site's own host comes first, then other hosts in alphabetical order.
+3. **Other pages, by folder and subdomain**: everything else, grouped by host and the first folder of the address (`www.example.org/news/`, `www.example.org/ (top level)`, `blog.example.org/ ...`). The site's own host comes first, then its subdomains, then other websites whose content was embedded in its pages (such as YouTube videos), labelled "Embedded from other websites".
 4. **Documents**: "From this website", then "From other websites".
 
 Each page is listed once, even if several parts captured it.
