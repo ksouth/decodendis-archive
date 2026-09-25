@@ -48,12 +48,13 @@ a .hint { color:inherit; opacity:.8; }
 <body>
 <main>
 <h1>Archive dashboard</h1>
-<p class="lede">Latest capture: <time datetime="2026-09-25T08:07:00Z">2026-09-25 08:07 UTC</time>. The daily check runs at <time data-time-only datetime="2026-01-01T03:17:00Z">03:17 UTC</time> each day. Every capture is under <a href="https://github.com/ksouth/decodendis-archive/releases">Releases</a>;
+<p class="lede">Latest capture: <time datetime="2026-09-25T09:36:00Z">2026-09-25 09:36 UTC</time>. The daily check runs at <time data-time-only datetime="2026-01-01T03:17:00Z">03:17 UTC</time> each day. Every capture is under <a href="https://github.com/ksouth/decodendis-archive/releases">Releases</a>;
 open a <code>.wacz</code> file at <a href="https://replayweb.page">replayweb.page</a> to browse it.</p>
 <p class="notice"><strong>Downloads:</strong> clicking a number under <strong>Documents</strong> or
 <strong>Site files</strong> downloads a zip file straight away; its size is shown under the number.
-<strong>Open page</strong> under <strong>Files</strong> opens the capture's release page and downloads nothing.</p>
-<div class="wrap"><table><tr class=head><th>Site</th><th>Schedule</th><th>Last capture</th><th>Status</th><th class=num>Pages</th><th class=num>Documents</th><th class=num>Site files</th><th class=num>Size</th><th>Next run</th><th>Files</th></tr><tr><td class="name"><span class="site">decodendis</span><a class="url" href="https://decodendis.pplx.app/">https://decodendis.pplx.app/</a></td><td><span class="cell"><span class="lbl">Schedule</span><span class="val">once</span></span></td><td class="time"><span class="cell"><span class="lbl">Last capture</span><span class="val"><time datetime="2026-09-25T08:07:00Z">2026-09-25 08:07 UTC</time></span></span></td><td class="status complete"><span class="cell"><span class="lbl">Status</span><span class="val">Complete</span></span></td><td class="num"><span class="cell"><span class="lbl">Pages</span><span class="val">5</span></span></td><td class="num"><span class="cell"><span class="lbl">Documents</span><span class="val">0</span></span></td><td class="num"><a href="https://github.com/ksouth/decodendis-archive/releases/download/archive/decodendis/20260925T080356Z-part1/site-files.zip"><span class="lbl">Site files</span><span class="val">12<span class="hint">download zip, 4.6 MB</span></span></a></td><td class="num"><span class="cell"><span class="lbl">Size</span><span class="val">9.2 MB</span></span></td><td class=""><span class="cell"><span class="lbl">Next run</span><span class="val">none (once)</span></span></td><td class="files"><a href="https://github.com/ksouth/decodendis-archive/releases/tag/archive/decodendis/20260925T080356Z-part1"><span class="lbl">Files</span><span class="val">open page</span></a></td></tr></table></div>
+<strong>Open page</strong> under <strong>Files</strong> opens the capture's release page, and a number under
+<strong>Pages</strong> opens the capture's page list; neither downloads anything.</p>
+<div class="wrap"><table><tr class=head><th>Site</th><th>Schedule</th><th>Last capture</th><th>Status</th><th class=num>Pages</th><th class=num>Documents</th><th class=num>Site files</th><th class=num>Size</th><th>Next run</th><th>Files</th></tr><tr><td class="name"><span class="site">decodendis</span><a class="url" href="https://decodendis.pplx.app/">https://decodendis.pplx.app/</a></td><td><span class="cell"><span class="lbl">Schedule</span><span class="val">once</span></span></td><td class="time"><span class="cell"><span class="lbl">Last capture</span><span class="val"><time datetime="2026-09-25T09:36:00Z">2026-09-25 09:36 UTC</time></span></span></td><td class="status complete"><span class="cell"><span class="lbl">Status</span><span class="val">Complete</span></span></td><td class="num"><a href="captures/decodendis/20260925T093403Z/"><span class="lbl">Pages</span><span class="val">5<span class="hint">view list</span></span></a></td><td class="num"><span class="cell"><span class="lbl">Documents</span><span class="val">0</span></span></td><td class="num"><a href="https://github.com/ksouth/decodendis-archive/releases/download/archive/decodendis/20260925T093403Z-part1/site-files.zip"><span class="lbl">Site files</span><span class="val">15<span class="hint">download zip, 4.6 MB</span></span></a></td><td class="num"><span class="cell"><span class="lbl">Size</span><span class="val">9.4 MB</span></span></td><td class=""><span class="cell"><span class="lbl">Next run</span><span class="val">none (once)</span></span></td><td class="files"><a href="https://github.com/ksouth/decodendis-archive/releases/tag/archive/decodendis/20260925T093403Z-part1"><span class="lbl">Files</span><span class="val">open page</span></a></td></tr></table></div>
 <p class="note">When a capture has several zips, the number opens its release page instead of downloading.
 Counts and size cover every part of the latest capture; documents include those fetched from other websites.
 Times are in your local time.</p>
@@ -61,15 +62,19 @@ Times are in your local time.</p>
 <script>
 // Show every time in the viewer's own time zone, 12-hour, followed by the zone's name in brackets.
 function zoneName(d) {
-  var styles = ["longGeneric", "long"];  // "Australian Eastern Time"; older browsers only have "long"
-  for (var i = 0; i < styles.length; i++) {
+  // A short zone name such as "AET": the browser's short generic name, or the initials of its long name.
+  var fmt = function (style) {
     try {
-      var part = new Intl.DateTimeFormat(undefined, { timeZoneName: styles[i] }).formatToParts(d)
-        .filter(function (p) { return p.type === "timeZoneName"; })[0];
-      if (part) return part.value;
-    } catch (e) {}
-  }
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+      var p = new Intl.DateTimeFormat(undefined, { timeZoneName: style }).formatToParts(d)
+        .filter(function (x) { return x.type === "timeZoneName"; })[0];
+      return p ? p.value : "";
+    } catch (e) { return ""; }
+  };
+  var s = fmt("shortGeneric");
+  if (/^[A-Z]{2,5}$/.test(s)) return s;  // already an abbreviation, e.g. "PT"
+  var long = fmt("longGeneric") || fmt("long");  // e.g. "Australian Eastern Time" -> "AET"
+  if (long && !/^(GMT|UTC)/.test(long)) return long.split(/\s+/).map(function (w) { return w[0]; }).join("").toUpperCase();
+  return s || long || Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 document.querySelectorAll("time[datetime]").forEach(function (el) {
   var d = new Date(el.getAttribute("datetime"));
