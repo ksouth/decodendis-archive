@@ -41,7 +41,22 @@ Each capture is a release named after the site and date, with these files:
 
 ## Dashboard
 
-After every run, the workflow rebuilds a dashboard listing each site: its schedule, last capture, status (complete, in progress, waiting, stopped, or off), pages, documents, site files, size, and when it runs next. Each date links to that capture's release. Sites that aren't in `sites.yaml`, such as one-off runs, are listed separately.
+After every run, the workflow rebuilds a dashboard with one row per site:
+
+| Column | Shows |
+|---|---|
+| Site | The site's name and address. |
+| Schedule | `once`, `weekly`, `monthly` or `off`; `one-off` for captures of sites not in `sites.yaml`. |
+| Last capture | When the latest capture finished (in your own time zone on the web page). |
+| Status | Complete, In progress (still continuing across parts), Waiting (not captured yet), Stopped (an incomplete capture that won't continue), Off, or Failed. A failed capture links to its log, and stays marked until a later capture succeeds. |
+| Pages | Pages captured, and how many failed to load. |
+| Documents | Documents captured. Click to download `documents.zip`. |
+| Site files | Files in `site-files.zip` (click to download), or `off` when `site_files` is off for that site. |
+| Size | Total size of the capture's files. |
+| Next run | Date and time of the next scheduled capture, worked out with the same rules the workflow uses; `continuing now` while a large site is between parts; `none (once)` for a site captured once. |
+| Files | Opens the capture's release page, with every file from that capture. |
+
+Sites that aren't in `sites.yaml`, such as one-off runs, are listed separately.
 
 Choose the formats in `sites.yaml`:
 

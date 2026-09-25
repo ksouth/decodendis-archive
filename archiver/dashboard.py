@@ -1,7 +1,8 @@
 """Build DASHBOARD.md and docs/index.html: what each site has captured.
 
-Reads sites.yaml and the repository's releases (JSON lines from
-`gh api --paginate repos/<owner>/<repo>/releases --jq '.[]'`).
+Reads sites.yaml, the repository's releases (JSON lines from
+`gh api --paginate repos/<owner>/<repo>/releases --jq '.[]'`), and optionally the capture
+jobs of failed workflow runs (JSON lines with name, conclusion, completed_at, html_url).
 """
 
 import argparse
@@ -11,10 +12,10 @@ import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from .config import SCHEDULE_DAYS, load_dashboard_settings, load_sites
-from .plan import STAMP_FORMAT, TAG_RE
+from .config import load_dashboard_settings, load_sites
+from .plan import STAMP_FORMAT, TAG_RE, parse_releases, plan_site
 
 STATS_RE = re.compile(r"<!-- capture-stats (\{.*?\}) -->")
 # Older reports, written before the stats comment existed.
@@ -25,6 +26,25 @@ TABLE_ROWS = {
     "offsite_documents": r"\| Documents from other sites \| (\d+)",
     "site_files": r"\| Site files \| (\d+)",
 }
+REPORT_URL_RE = re.compile(r"^# (https?://\S+)", re.MULTILINE)
+JOB_NAME_RE = re.compile(r"^(?P<slug>[a-z0-9-]+) \(part (?P<part>\d+)\)$")
+CRON_RE = re.compile(r"cron:\s*[\"']?(\d+) (\d+) \* \* \*")
+
+
+def parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def fmt_time(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def human(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return str(n)
 
 
 def release_stats(body: str) -> Dict[str, int]:
@@ -39,16 +59,23 @@ def release_stats(body: str) -> Dict[str, int]:
     return stats
 
 
-def human(n: float) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if n < 1024 or unit == "TB":
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024
-    return str(n)
+def daily_run_time(workflow: Path) -> Optional[Tuple[int, int]]:
+    """(hour, minute) UTC of the workflow's daily schedule."""
+    try:
+        m = CRON_RE.search(workflow.read_text())
+    except OSError:
+        return None
+    return (int(m.group(2)), int(m.group(1))) if m else None
 
 
-def capture_date(capture: str) -> datetime:
-    return datetime.strptime(capture, STAMP_FORMAT).replace(tzinfo=timezone.utc)
+def next_daily(after: datetime, hour_minute: Tuple[int, int]) -> datetime:
+    t = after.replace(hour=hour_minute[0], minute=hour_minute[1], second=0, microsecond=0)
+    return t if t > after else t + timedelta(days=1)
+
+
+def published(rel: Dict[str, Any]) -> str:
+    """When a release was published. Its created_at is the date of the tagged commit, not of the release."""
+    return rel.get("published_at") or rel.get("created_at") or ""
 
 
 def group_captures(releases: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
@@ -65,14 +92,20 @@ def group_captures(releases: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, A
         for rel in rels:
             for key, value in release_stats(rel.get("body", "")).items():
                 totals[key] += value
+        assets = [a for r in rels for a in r.get("assets", [])]
+        url = next((m.group(1) for r in rels if (m := REPORT_URL_RE.search(r.get("body") or ""))), "")
         last = rels[-1]
         by_site[slug].append({
             "capture": capture,
-            "date": capture_date(capture),
-            "parts": rels[-1]["part"],
+            "finished": parse_time(published(last)) if published(last) else
+            datetime.strptime(capture, STAMP_FORMAT).replace(tzinfo=timezone.utc),
+            "parts": last["part"],
             "complete": not last.get("prerelease"),
-            "size": sum(a.get("size", 0) for r in rels for a in r.get("assets", [])),
-            "url": last.get("html_url", ""),
+            "size": sum(a.get("size", 0) for a in assets),
+            "release_url": last.get("html_url", ""),
+            "url": url,
+            "document_zips": [a["browser_download_url"] for a in assets if re.match(r"documents(-\d+)?\.zip$", a.get("name", ""))],
+            "site_zips": [a["browser_download_url"] for a in assets if re.match(r"site-files(-\d+)?\.zip$", a.get("name", ""))],
             **totals,
         })
     for captures in by_site.values():
@@ -80,85 +113,140 @@ def group_captures(releases: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, A
     return by_site
 
 
-def site_row(slug: str, url: str, schedule: str, captures: List[Dict[str, Any]], now: datetime,
-             max_parts: Optional[int] = None) -> Dict[str, Any]:
-    """max_parts is None for sites not in sites.yaml, whose incomplete captures are never continued."""
+def latest_failures(jobs: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Most recent failed capture job per site."""
+    failures: Dict[str, Dict[str, Any]] = {}
+    for job in jobs:
+        m = JOB_NAME_RE.match(job.get("name", ""))
+        if not m or job.get("conclusion") not in ("failure", "timed_out") or not job.get("completed_at"):
+            continue
+        when = parse_time(job["completed_at"])
+        if m["slug"] not in failures or when > failures[m["slug"]]["when"]:
+            failures[m["slug"]] = {"when": when, "url": job.get("html_url", "")}
+    return failures
+
+
+def site_row(slug: str, captures: List[Dict[str, Any]], now: datetime, site: Optional[Dict[str, Any]] = None,
+             failure: Optional[Dict[str, Any]] = None, releases=None, daily: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
+    """site is None for captures of sites not in sites.yaml, which are never continued or repeated."""
     latest = captures[0] if captures else None
-    if latest is None:
-        status, next_run = ("off", "—") if schedule == "off" else ("waiting", "next run")
+    schedule = site["schedule"] if site else "one-off"
+    if failure and (latest is None or failure["when"] > latest["finished"]):
+        status = "failed"
+    elif latest is None:
+        status = "off" if schedule == "off" else "waiting"
     elif not latest["complete"]:
-        if max_parts is None or schedule == "off" or latest["parts"] >= max_parts:
-            status, next_run = "stopped", "—"
-        else:
-            status, next_run = "in progress", "continuing"
+        stopped = site is None or schedule == "off" or latest["parts"] >= site["max_parts"]
+        status = "stopped" if stopped else "in progress"
     else:
         status = "complete"
-        if schedule in SCHEDULE_DAYS:
-            due = latest["date"] + timedelta(days=SCHEDULE_DAYS[schedule])
-            next_run = "next run" if due <= now else due.strftime("%Y-%m-%d")
+
+    next_run: Any = "—"
+    if site and status == "in progress":
+        next_run = "continuing now"
+    elif site and status not in ("stopped",) and schedule != "off" and daily:
+        parsed = releases.get(slug) if releases else None
+        t = now
+        for _ in range(400):
+            t = next_daily(t, daily)
+            if plan_site(site, parsed, t):
+                next_run = t
+                break
         else:
-            next_run = "—"
-    return {"slug": slug, "url": url, "schedule": schedule, "status": status, "next": next_run,
-            "latest": latest, "count": len(captures)}
+            next_run = "none (once)" if schedule == "once" else "—"
+    elif site and schedule == "off":
+        next_run = "never (off)"
+    return {"slug": slug, "url": (site or {}).get("url") or (latest or {}).get("url", ""), "schedule": schedule,
+            "status": status, "next": next_run, "latest": latest, "count": len(captures), "failure": failure,
+            "site_files_on": site["site_files"] if site else None}
 
 
-def build(sites: List[Dict[str, Any]], releases: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
+def build(sites: List[Dict[str, Any]], releases: List[Dict[str, Any]], now: datetime,
+          jobs: Optional[List[Dict[str, Any]]] = None, daily: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
     captures = group_captures(releases)
-    listed = [site_row(s["slug"], s["url"], s["schedule"], captures.get(s["slug"], []), now, s["max_parts"])
+    failures = latest_failures(jobs or [])
+    parsed = parse_releases([{"tagName": r["tag_name"], "createdAt": published(r), "isPrerelease": r.get("prerelease")}
+                             for r in releases if published(r)])
+    listed = [site_row(s["slug"], captures.get(s["slug"], []), now, s, failures.get(s["slug"]), parsed, daily)
               for s in sites]
     names = {s["slug"] for s in sites}
-    other = [site_row(slug, "", "not in sites.yaml", caps, now) for slug, caps in sorted(captures.items()) if slug not in names]
-    dates = [c["date"] for caps in captures.values() for c in caps]
-    return {"sites": listed, "other": other, "updated": max(dates) if dates else None}
+    other = [site_row(slug, caps, now, None, failures.get(slug)) for slug, caps in sorted(captures.items())
+             if slug not in names]
+    times = [c["finished"] for caps in captures.values() for c in caps]
+    return {"sites": listed, "other": other, "updated": max(times) if times else None, "daily": daily}
 
 
-STATUS_ICONS = {"complete": "✅", "in progress": "⏳", "waiting": "🕓", "off": "⏸️", "stopped": "⚠️"}
+STATUS_LABELS = {"complete": "Complete", "in progress": "In progress", "waiting": "Waiting",
+                 "off": "Off", "stopped": "Stopped", "failed": "Failed"}
 
 
-def cells(row: Dict[str, Any]) -> Dict[str, str]:
+def cell_values(row: Dict[str, Any]) -> List[Tuple[str, str, Optional[str], str]]:
+    """(label, text, link, css class) for each column, shared by the Markdown and HTML versions."""
     c = row["latest"]
-    return {
-        "status": row["status"] + (f" after part {c['parts']}" if c and row["status"] == "stopped"
-                                   else f" (part {c['parts']})" if c and row["status"] == "in progress" else ""),
-        "date": c["date"].strftime("%Y-%m-%d") if c else "never",
-        "pages": f"{c.get('pages', 0):,}" if c else "—",
-        "documents": f"{c.get('documents', 0) + c.get('offsite_documents', 0):,}" if c else "—",
-        "site_files": f"{c['site_files']:,}" if c and "site_files" in c else "—",
-        "size": human(c["size"]) if c else "—",
-    }
+    status = STATUS_LABELS[row["status"]]
+    status_link = None
+    if row["status"] == "failed":
+        status += " (view log)"
+        status_link = row["failure"]["url"]
+    elif row["status"] == "stopped":
+        status += f" after part {c['parts']}"
+    elif row["status"] == "in progress":
+        status += f" (part {c['parts']})"
+
+    pages = f"{c.get('pages', 0):,}" + (f" ({c['failed']:,} failed)" if c.get("failed") else "") if c else "—"
+    docs = c.get("documents", 0) + c.get("offsite_documents", 0) if c else None
+    doc_text = "—" if docs is None else f"{docs:,}"
+    doc_link = None
+    if docs:
+        doc_link = c["document_zips"][0] if len(c["document_zips"]) == 1 else c["release_url"]
+    if row["site_files_on"] is False:
+        site_text, site_link = "off", None
+    elif c and "site_files" in c:
+        site_text = f"{c['site_files']:,}"
+        site_link = (c["site_zips"][0] if len(c["site_zips"]) == 1 else c["release_url"]) if c["site_files"] else None
+    else:
+        site_text, site_link = "—", None
+    nxt = row["next"]
+    return [
+        ("Last capture", fmt_time(c["finished"]) if c else "never", None, "time" if c else ""),
+        ("Status", status, status_link, "status " + row["status"].replace(" ", "-")),
+        ("Pages", pages, None, "num"),
+        ("Documents", doc_text, doc_link, "num"),
+        ("Site files", site_text, site_link, "num"),
+        ("Size", human(c["size"]) if c else "—", None, "num"),
+        ("Next run", fmt_time(nxt) if isinstance(nxt, datetime) else nxt, None, "time" if isinstance(nxt, datetime) else ""),
+        ("Files", "open" if c else "—", c["release_url"] if c else None, ""),
+    ]
 
 
 def render_md(model: Dict[str, Any], repo_url: str) -> str:
-    updated = model["updated"].strftime("%Y-%m-%d %H:%M UTC") if model["updated"] else "no captures yet"
-    lines = [
-        "# Archive dashboard",
-        "",
-        f"Rebuilt automatically after each run. Latest capture: {updated}. "
-        f"All captures are under [Releases]({repo_url}/releases).",
-        "",
-    ]
+    updated = fmt_time(model["updated"]) if model["updated"] else "no captures yet"
+    daily = f" The daily check runs at {model['daily'][0]:02d}:{model['daily'][1]:02d} UTC." if model["daily"] else ""
+    lines = ["# Archive dashboard", "",
+             f"Rebuilt automatically after each run. Latest capture: {updated}.{daily} "
+             f"All captures are under [Releases]({repo_url}/releases).", ""]
 
-    def table(rows, show_url):
-        out = ["| Site | Schedule | Last capture | Status | Pages | Documents | Site files | Size | Next | Captures |",
+    def table(rows):
+        out = ["| Site | Schedule | Last capture | Status | Pages | Documents | Site files | Size | Next run | Files |",
                "|---|---|---|---|---|---|---|---|---|---|"]
         for row in rows:
-            v = cells(row)
-            name = f"**{row['slug']}**" + (f"<br>{row['url']}" if show_url and row["url"] else "")
-            date = f"[{v['date']}]({row['latest']['url']})" if row["latest"] else v["date"]
-            out.append(f"| {name} | {row['schedule']} | {date} | {STATUS_ICONS.get(row['status'], '')} {v['status']} "
-                       f"| {v['pages']} | {v['documents']} | {v['site_files']} | {v['size']} | {row['next']} | {row['count']} |")
+            name = f"**{row['slug']}**" + (f"<br>{row['url']}" if row["url"] else "")
+            values = [f"[{text}]({link})" if link else text for _, text, link, _ in cell_values(row)]
+            out.append("| " + " | ".join([name, row["schedule"], *values]) + " |")
         return out
 
     if model["sites"]:
-        lines += table(model["sites"], True)
+        lines += table(model["sites"])
     else:
         lines.append("No sites in `sites.yaml` yet. Add one to start archiving.")
     if model["other"]:
-        lines += ["", "## Other captures", "",
-                  "Captures of sites that aren't in `sites.yaml`, such as one-off runs from the Run workflow form.", ""]
-        lines += table(model["other"], False)
-    lines += ["", "Pages, documents and size cover every part of the latest capture. "
-              "Documents include those fetched from other websites."]
+        lines += ["", "## One-off captures", "",
+                  "Captures of sites that aren't in `sites.yaml`, such as runs started from the Run workflow form. "
+                  "They are never repeated or continued.", ""]
+        lines += table(model["other"])
+    lines += ["", "**Documents** and **Site files** link to the zip of those files (or to the release page when a "
+              "capture has several). **Files** opens the release with everything from that capture. Counts and size "
+              "cover every part of the latest capture; documents include those fetched from other websites."]
     return "\n".join(lines) + "\n"
 
 
@@ -170,43 +258,67 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <title>Archive dashboard</title>
 <style>
 :root {{ --bg:#fbfbf9; --fg:#1d1d1b; --muted:#6b6b66; --line:#e3e2dc; --card:#fff; --accent:#2f5d8a;
-  --ok:#2e7d4f; --run:#9a6700; --wait:#6b6b66; }}
+  --ok:#2e7d4f; --run:#9a6700; --bad:#b42318; --wait:#6b6b66; }}
 @media (prefers-color-scheme: dark) {{ :root {{ --bg:#161615; --fg:#ecebe6; --muted:#a3a29b; --line:#33322e;
-  --card:#1f1f1d; --accent:#8db8e3; --ok:#6fcf97; --run:#e3b341; --wait:#a3a29b; }} }}
+  --card:#1f1f1d; --accent:#8db8e3; --ok:#6fcf97; --run:#e3b341; --bad:#f97066; --wait:#a3a29b; }} }}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }}
-main {{ max-width:1100px; margin:0 auto; padding:32px 16px 48px; }}
+main {{ max-width:1200px; margin:0 auto; padding:32px 16px 48px; }}
 h1 {{ font-size:26px; margin:0 0 4px; }} h2 {{ font-size:18px; margin:36px 0 4px; }}
 p.lede, p.note {{ color:var(--muted); margin:0 0 20px; }}
 a {{ color:var(--accent); }}
 .wrap {{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--card); }}
-table {{ border-collapse:collapse; width:100%; min-width:760px; }}
+table {{ border-collapse:collapse; width:100%; min-width:900px; }}
 th, td {{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }}
 th {{ font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }}
 tr:last-child td {{ border-bottom:0; }}
-td.num {{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }} td.date {{ white-space:nowrap; }} th.num {{ text-align:right; }}
+td.num, th.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
+td.num, td.time {{ white-space:nowrap; }}
+.lbl {{ display:none; }}
 .site {{ font-weight:600; }} .url {{ display:block; font-size:13px; color:var(--muted); word-break:break-all; }}
-.status {{ font-weight:600; white-space:nowrap; }}
-@media (max-width: 700px) {{
+.status {{ font-weight:600; }}
+.complete {{ color:var(--ok); }} .in-progress, .stopped {{ color:var(--run); }} .failed, .failed a {{ color:var(--bad); }}
+.waiting, .off {{ color:var(--wait); }}
+@media (max-width: 760px) {{
   table, tbody, tr, td {{ display:block; min-width:0; }}
   tr.head {{ display:none; }}
   tr {{ padding:10px 0; border-bottom:1px solid var(--line); }} tr:last-child {{ border-bottom:0; }}
-  td {{ display:flex; justify-content:space-between; gap:16px; padding:3px 14px; border:0; text-align:right; }}
-  td::before {{ content:attr(data-label); color:var(--muted); font-size:12px; text-transform:uppercase;
-    letter-spacing:.04em; text-align:left; flex:none; }}
-  td.name {{ display:block; text-align:left; padding-bottom:6px; }} td.name::before {{ content:none; }}
+  td {{ padding:3px 14px; border:0; }}
+  td > a, td > span.cell {{ display:flex; justify-content:space-between; gap:16px; }}
+  .lbl {{ display:inline; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em;
+    font-weight:400; flex:none; }}
+  .val {{ text-align:right; }}
+  td.name {{ padding-bottom:6px; }}
 }}
-.complete {{ color:var(--ok); }} .in-progress, .stopped {{ color:var(--run); }} .waiting, .off {{ color:var(--wait); }}
 </style>
 </head>
 <body>
 <main>
 <h1>Archive dashboard</h1>
-<p class="lede">Latest capture: {updated}. Every capture is under <a href="{repo_url}/releases">Releases</a>;
+<p class="lede">Latest capture: {updated}.{daily} Every capture is under <a href="{repo_url}/releases">Releases</a>;
 open a <code>.wacz</code> file at <a href="https://replayweb.page">replayweb.page</a> to browse it.</p>
 {sections}
-<p class="note">Rebuilt automatically after each run. Pages, documents and size cover every part of the latest capture.</p>
+<p class="note"><strong>Documents</strong> and <strong>Site files</strong> download the zip of those files (or open the
+release page when a capture has several). <strong>Files</strong> opens the release with everything from that capture.
+Counts and size cover every part of the latest capture; documents include those fetched from other websites.
+Times are shown in your time zone.</p>
 </main>
+<script>
+document.querySelectorAll("time[datetime]").forEach(function (el) {{
+  var d = new Date(el.getAttribute("datetime"));
+  if (isNaN(d)) return;
+  var zone = d.toLocaleTimeString(undefined, {{ timeZoneName: "short" }}).split(" ").pop();
+  if (el.hasAttribute("data-time-only")) {{
+    // Today's date, so the local time reflects daylight saving now.
+    var now = new Date();
+    d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()));
+    el.textContent = d.toLocaleTimeString(undefined, {{ timeStyle: "short" }}) + " " +
+      d.toLocaleTimeString(undefined, {{ timeZoneName: "short" }}).split(" ").pop();
+  }} else {{
+    el.textContent = d.toLocaleString(undefined, {{ dateStyle: "medium", timeStyle: "short" }}) + " " + zone;
+  }}
+}});
+</script>
 </body>
 </html>
 """
@@ -215,39 +327,43 @@ open a <code>.wacz</code> file at <a href="https://replayweb.page">replayweb.pag
 def render_html(model: Dict[str, Any], repo_url: str) -> str:
     esc = html.escape
 
-    def table(rows, show_url):
+    def time_html(text: str) -> str:
+        m = re.match(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC$", text)
+        return f'<time datetime="{m.group(1)}T{m.group(2)}:00Z">{esc(text)}</time>' if m else esc(text)
+
+    def table(rows):
         head = ("<tr class=head><th>Site</th><th>Schedule</th><th>Last capture</th><th>Status</th><th class=num>Pages</th>"
-                "<th class=num>Documents</th><th class=num>Site files</th><th class=num>Size</th><th>Next</th>"
-                "<th class=num>Captures</th></tr>")
+                "<th class=num>Documents</th><th class=num>Site files</th><th class=num>Size</th><th>Next run</th>"
+                "<th>Files</th></tr>")
         body = []
         for row in rows:
-            v = cells(row)
-            url = f'<a class="url" href="{esc(row["url"])}">{esc(row["url"])}</a>' if show_url and row["url"] else ""
-            date = f'<a href="{esc(row["latest"]["url"])}">{v["date"]}</a>' if row["latest"] else v["date"]
-            body.append(
-                f'<tr><td class="name"><span class="site">{esc(row["slug"])}</span>{url}</td>'
-                f'<td data-label="Schedule">{esc(row["schedule"])}</td>'
-                f'<td class="date" data-label="Last capture">{date}</td>'
-                f'<td class="status {row["status"].replace(" ", "-")}" data-label="Status">{esc(v["status"])}</td>'
-                f'<td class=num data-label="Pages">{v["pages"]}</td>'
-                f'<td class=num data-label="Documents">{v["documents"]}</td>'
-                f'<td class=num data-label="Site files">{v["site_files"]}</td>'
-                f'<td class=num data-label="Size">{v["size"]}</td>'
-                f'<td data-label="Next">{esc(row["next"])}</td>'
-                f'<td class=num data-label="Captures">{row["count"]}</td></tr>'
-            )
+            url = f'<a class="url" href="{esc(row["url"])}">{esc(row["url"])}</a>' if row["url"] else ""
+            tds = [f'<td class="name"><span class="site">{esc(row["slug"])}</span>{url}</td>',
+                   f'<td><span class="cell"><span class="lbl">Schedule</span><span class="val">{esc(row["schedule"])}</span></span></td>']
+            for label, text, link, cls in cell_values(row):
+                inner = f'<span class="lbl">{label}</span><span class="val">{time_html(text) if "time" in cls else esc(text)}</span>'
+                inner = f'<a href="{esc(link)}">{inner}</a>' if link else f'<span class="cell">{inner}</span>'
+                tds.append(f'<td class="{cls}">{inner}</td>')
+            body.append("<tr>" + "".join(tds) + "</tr>")
         return f'<div class="wrap"><table>{head}{"".join(body)}</table></div>'
 
-    sections = table(model["sites"], True) if model["sites"] else \
+    sections = table(model["sites"]) if model["sites"] else \
         "<p>No sites in <code>sites.yaml</code> yet. Add one to start archiving.</p>"
     if model["other"]:
-        sections += ("<h2>Other captures</h2><p class=note>Sites that aren't in <code>sites.yaml</code>, "
-                     "such as one-off runs from the Run workflow form.</p>" + table(model["other"], False))
-    updated = model["updated"].strftime("%Y-%m-%d %H:%M UTC") if model["updated"] else "no captures yet"
-    return HTML_TEMPLATE.format(updated=esc(updated), repo_url=esc(repo_url), sections=sections)
+        sections += ("<h2>One-off captures</h2><p class=note>Sites that aren't in <code>sites.yaml</code>, such as runs "
+                     "started from the Run workflow form. They are never repeated or continued.</p>" + table(model["other"]))
+    updated = time_html(fmt_time(model["updated"])) if model["updated"] else "no captures yet"
+    daily = ""
+    if model["daily"]:
+        h, m = model["daily"]
+        daily = (f' The daily check runs at <time data-time-only datetime="2026-01-01T{h:02d}:{m:02d}:00Z">'
+                 f"{h:02d}:{m:02d} UTC</time> each day.")
+    return HTML_TEMPLATE.format(updated=updated, daily=daily, repo_url=esc(repo_url), sections=sections)
 
 
-def load_releases(path: Path) -> List[Dict[str, Any]]:
+def load_json_lines(path: Optional[Path]) -> List[Dict[str, Any]]:
+    if not path or not Path(path).exists():
+        return []
     return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
 
 
@@ -255,12 +371,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sites", default="sites.yaml")
     parser.add_argument("--releases", required=True, help="JSON lines of GitHub releases")
+    parser.add_argument("--jobs", help="JSON lines of capture jobs from failed runs")
+    parser.add_argument("--workflow", default=".github/workflows/archive.yml")
     parser.add_argument("--repo-url", required=True)
     parser.add_argument("--md", default="DASHBOARD.md")
     parser.add_argument("--html", default="docs/index.html")
     args = parser.parse_args()
     settings = load_dashboard_settings(Path(args.sites))
-    model = build(load_sites(Path(args.sites)), load_releases(Path(args.releases)), datetime.now(timezone.utc))
+    model = build(load_sites(Path(args.sites)), load_json_lines(Path(args.releases)), datetime.now(timezone.utc),
+                  load_json_lines(Path(args.jobs)) if args.jobs else [], daily_run_time(Path(args.workflow)))
     if settings["markdown"]:
         Path(args.md).write_text(render_md(model, args.repo_url))
         print(f"Wrote {args.md}")

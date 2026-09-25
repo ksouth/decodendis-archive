@@ -121,7 +121,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api --paginate "repos/${{ github.repository }}/releases" --jq '.[]' > "$RUNNER_TEMP/releases.jsonl"
-          python -m archiver.dashboard --releases "$RUNNER_TEMP/releases.jsonl" \
+          # Capture jobs from this run and recent failed runs, so the dashboard can show failures.
+          failed_runs=$(gh run list --workflow archive.yml --status failure --limit 20 --json databaseId --jq '.[].databaseId')
+          for id in ${{ github.run_id }} $failed_runs; do
+            gh api "repos/${{ github.repository }}/actions/runs/$id/jobs" \
+              --jq '.jobs[] | {name, conclusion, completed_at, html_url}' || true
+          done > "$RUNNER_TEMP/jobs.jsonl"
+          python -m archiver.dashboard --releases "$RUNNER_TEMP/releases.jsonl" --jobs "$RUNNER_TEMP/jobs.jsonl" \
             --repo-url "${{ github.server_url }}/${{ github.repository }}" | tee "$RUNNER_TEMP/dashboard.log"
           if grep -q '^web_page=true' "$RUNNER_TEMP/dashboard.log" && ! gh api "repos/${{ github.repository }}/pages" > /dev/null 2>&1; then
             echo "::notice::docs/index.html was updated, but GitHub Pages is off. To publish it: Settings -> Pages -> Deploy from a branch -> main, /docs."
