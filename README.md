@@ -47,7 +47,7 @@ After every run, the workflow rebuilds a dashboard with one row per site:
 |---|---|
 | Site | The site's name and address. |
 | Schedule | `once`, `weekly`, `monthly` or `off`; `one-off` for captures of sites not in `sites.yaml`. |
-| Last capture | When the latest capture finished (in your own time zone on the web page). |
+| Last capture | When the latest capture finished. The web page shows it in your local time, 12-hour, with the time zone name in brackets; `DASHBOARD.md` shows UTC. |
 | Status | Complete, In progress (still continuing across parts), Waiting (not captured yet), Stopped (an incomplete capture that won't continue), Off, or Failed. A failed capture links to its log, and stays marked until a later capture succeeds. |
 | Pages | Pages captured, and how many failed to load. |
 | Documents | Documents captured. Click to download `documents.zip`. |
