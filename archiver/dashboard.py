@@ -9,11 +9,13 @@ import argparse
 import html
 import json
 import re
+import shutil
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+from . import pagelist
 from .config import load_dashboard_settings, load_sites
 from .plan import STAMP_FORMAT, TAG_RE, parse_releases, plan_site
 
@@ -76,6 +78,17 @@ def next_daily(after: datetime, hour_minute: Tuple[int, int]) -> datetime:
 def published(rel: Dict[str, Any]) -> str:
     """When a release was published. Its created_at is the date of the tagged commit, not of the release."""
     return rel.get("published_at") or rel.get("created_at") or ""
+
+
+def list_path(slug: str, capture: str) -> str:
+    """Where a capture's page list lives, relative to the dashboard web page."""
+    return f"captures/{slug}/{capture}/"
+
+
+def pages_base_url(repo_url: str) -> str:
+    """The GitHub Pages address for a repository, e.g. https://ksouth.github.io/SCRAPE/."""
+    owner, repo = repo_url.rstrip("/").split("/")[-2:]
+    return f"https://{owner.lower()}.github.io/{repo}/"
 
 
 def group_captures(releases: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
@@ -162,8 +175,14 @@ def site_row(slug: str, captures: List[Dict[str, Any]], now: datetime, site: Opt
 
 
 def build(sites: List[Dict[str, Any]], releases: List[Dict[str, Any]], now: datetime,
-          jobs: Optional[List[Dict[str, Any]]] = None, daily: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
+          jobs: Optional[List[Dict[str, Any]]] = None, daily: Optional[Tuple[int, int]] = None,
+          lists: Optional[Set[Tuple[str, str]]] = None) -> Dict[str, Any]:
+    """lists: (slug, capture) pairs that have a page list page."""
     captures = group_captures(releases)
+    for slug, caps in captures.items():
+        for cap in caps:
+            if lists and (slug, cap["capture"]) in lists:
+                cap["list_path"] = list_path(slug, cap["capture"])
     failures = latest_failures(jobs or [])
     parsed = parse_releases([{"tagName": r["tag_name"], "createdAt": published(r), "isPrerelease": r.get("prerelease")}
                              for r in releases if published(r)])
@@ -187,7 +206,7 @@ def zip_link(zips: List[Dict[str, Any]], release_url: str) -> Tuple[str, str]:
     return release_url, f"opens release: {len(zips)} zips" if zips else "opens release page"
 
 
-def cell_values(row: Dict[str, Any]) -> List[Tuple[str, str, Optional[str], str, str]]:
+def cell_values(row: Dict[str, Any], list_base: str = "") -> List[Tuple[str, str, Optional[str], str, str]]:
     """(label, text, link, css class, hint) for each column, shared by the Markdown and HTML versions.
 
     hint says what a link does when it isn't obvious, e.g. that it downloads a file.
@@ -220,7 +239,8 @@ def cell_values(row: Dict[str, Any]) -> List[Tuple[str, str, Optional[str], str,
     return [
         ("Last capture", fmt_time(c["finished"]) if c else "never", None, "time" if c else "", ""),
         ("Status", status, status_link, "status " + row["status"].replace(" ", "-"), ""),
-        ("Pages", pages, None, "num", ""),
+        ("Pages", pages, list_base + c["list_path"] if c and c.get("list_path") else None, "num",
+         "view list" if c and c.get("list_path") else ""),
         ("Documents", doc_text, doc_link, "num", doc_hint),
         ("Site files", site_text, site_link, "num", site_hint),
         ("Size", human(c["size"]) if c else "—", None, "num", ""),
@@ -230,6 +250,7 @@ def cell_values(row: Dict[str, Any]) -> List[Tuple[str, str, Optional[str], str,
 
 
 def render_md(model: Dict[str, Any], repo_url: str) -> str:
+    list_base = pages_base_url(repo_url)
     updated = fmt_time(model["updated"]) if model["updated"] else "no captures yet"
     daily = f" The daily check runs at {model['daily'][0]:02d}:{model['daily'][1]:02d} UTC." if model["daily"] else ""
     lines = ["# Archive dashboard", "",
@@ -242,7 +263,7 @@ def render_md(model: Dict[str, Any], repo_url: str) -> str:
         for row in rows:
             name = f"**{row['slug']}**" + (f"<br>{row['url']}" if row["url"] else "")
             values = [f"[{text} ({hint})]({link})" if link and hint else f"[{text}]({link})" if link else text
-                      for _, text, link, _, hint in cell_values(row)]
+                      for _, text, link, _, hint in cell_values(row, list_base)]
             out.append("| " + " | ".join([name, row["schedule"], *values]) + " |")
         return out
 
@@ -255,7 +276,8 @@ def render_md(model: Dict[str, Any], repo_url: str) -> str:
                   "Captures of sites that aren't in `sites.yaml`, such as runs started from the Run workflow form. "
                   "They are never repeated or continued.", ""]
         lines += table(model["other"])
-    lines += ["", "**Clicking a Documents or Site files number downloads a zip file** of those files (its size is shown), "
+    lines += ["", "**Clicking a Pages number opens that capture's page list** (on the web page, so GitHub Pages must be on). "
+              "**Clicking a Documents or Site files number downloads a zip file** of those files (its size is shown), "
               "or opens the release page when a capture has several zips. **Files** opens the release page, which lists "
               "everything from that capture; nothing downloads until you choose a file there. Counts and size cover every "
               "part of the latest capture; documents include those fetched from other websites."]
@@ -316,7 +338,8 @@ a .hint {{ color:inherit; opacity:.8; }}
 open a <code>.wacz</code> file at <a href="https://replayweb.page">replayweb.page</a> to browse it.</p>
 <p class="notice"><strong>Downloads:</strong> clicking a number under <strong>Documents</strong> or
 <strong>Site files</strong> downloads a zip file straight away; its size is shown under the number.
-<strong>Open page</strong> under <strong>Files</strong> opens the capture's release page and downloads nothing.</p>
+<strong>Open page</strong> under <strong>Files</strong> opens the capture's release page, and a number under
+<strong>Pages</strong> opens the capture's page list; neither downloads anything.</p>
 {sections}
 <p class="note">When a capture has several zips, the number opens its release page instead of downloading.
 Counts and size cover every part of the latest capture; documents include those fetched from other websites.
@@ -325,15 +348,19 @@ Times are in your local time.</p>
 <script>
 // Show every time in the viewer's own time zone, 12-hour, followed by the zone's name in brackets.
 function zoneName(d) {{
-  var styles = ["longGeneric", "long"];  // "Australian Eastern Time"; older browsers only have "long"
-  for (var i = 0; i < styles.length; i++) {{
+  // A short zone name such as "AET": the browser's short generic name, or the initials of its long name.
+  var fmt = function (style) {{
     try {{
-      var part = new Intl.DateTimeFormat(undefined, {{ timeZoneName: styles[i] }}).formatToParts(d)
-        .filter(function (p) {{ return p.type === "timeZoneName"; }})[0];
-      if (part) return part.value;
-    }} catch (e) {{}}
-  }}
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+      var p = new Intl.DateTimeFormat(undefined, {{ timeZoneName: style }}).formatToParts(d)
+        .filter(function (x) {{ return x.type === "timeZoneName"; }})[0];
+      return p ? p.value : "";
+    }} catch (e) {{ return ""; }}
+  }};
+  var s = fmt("shortGeneric");
+  if (/^[A-Z]{{2,5}}$/.test(s)) return s;  // already an abbreviation, e.g. "PT"
+  var long = fmt("longGeneric") || fmt("long");  // e.g. "Australian Eastern Time" -> "AET"
+  if (long && !/^(GMT|UTC)/.test(long)) return long.split(/\\s+/).map(function (w) {{ return w[0]; }}).join("").toUpperCase();
+  return s || long || Intl.DateTimeFormat().resolvedOptions().timeZone;
 }}
 document.querySelectorAll("time[datetime]").forEach(function (el) {{
   var d = new Date(el.getAttribute("datetime"));
@@ -395,6 +422,28 @@ def render_html(model: Dict[str, Any], repo_url: str) -> str:
     return HTML_TEMPLATE.format(updated=updated, daily=daily, repo_url=esc(repo_url), sections=sections)
 
 
+def write_page_lists(indexes_dir: Optional[Path], out_dir: Path, dashboard_url: str) -> Set[Tuple[str, str]]:
+    """Render one page list per capture into out_dir/<slug>/<capture>/index.html, replacing old ones.
+    Returns the (slug, capture) pairs written."""
+    if out_dir.exists():
+        shutil.rmtree(out_dir)  # captures whose releases were deleted shouldn't keep a page
+    if not indexes_dir or not indexes_dir.exists():
+        return set()
+    by_capture: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    for path in sorted(indexes_dir.glob("*.json")):
+        try:
+            index = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if index.get("slug") and index.get("capture"):
+            by_capture[(index["slug"], index["capture"])].append(index)
+    for (slug, capture), parts in by_capture.items():
+        target = out_dir / slug / capture / "index.html"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(pagelist.render_page(parts, dashboard_url))
+    return set(by_capture)
+
+
 def load_json_lines(path: Optional[Path]) -> List[Dict[str, Any]]:
     if not path or not Path(path).exists():
         return []
@@ -407,13 +456,18 @@ def main() -> None:
     parser.add_argument("--releases", required=True, help="JSON lines of GitHub releases")
     parser.add_argument("--jobs", help="JSON lines of capture jobs from failed runs")
     parser.add_argument("--workflow", default=".github/workflows/archive.yml")
+    parser.add_argument("--indexes", help="folder of capture-index.json files downloaded from the releases")
     parser.add_argument("--repo-url", required=True)
     parser.add_argument("--md", default="DASHBOARD.md")
     parser.add_argument("--html", default="docs/index.html")
     args = parser.parse_args()
     settings = load_dashboard_settings(Path(args.sites))
+    lists: Set[Tuple[str, str]] = set()
+    if settings["web_page"]:
+        lists = write_page_lists(Path(args.indexes) if args.indexes else None, Path(args.html).parent / "captures",
+                                 dashboard_url="../../../")
     model = build(load_sites(Path(args.sites)), load_json_lines(Path(args.releases)), datetime.now(timezone.utc),
-                  load_json_lines(Path(args.jobs)) if args.jobs else [], daily_run_time(Path(args.workflow)))
+                  load_json_lines(Path(args.jobs)) if args.jobs else [], daily_run_time(Path(args.workflow)), lists)
     if settings["markdown"]:
         Path(args.md).write_text(render_md(model, args.repo_url))
         print(f"Wrote {args.md}")

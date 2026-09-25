@@ -3,6 +3,7 @@
 Captures of [NDIS Decoded](https://decodendis.pplx.app), made with the [SCRAPE](https://github.com/ksouth/SCRAPE) website archiver template.
 
 - **Captures:** under [Releases](https://github.com/ksouth/decodendis-archive/releases). Each has the site as a web archive (`.wacz`) and, because this repository sets `site_files: true`, every file of the site as ordinary files in `site-files.zip`.
+- **Page list:** every page and file in a capture, linked from the dashboard's Pages count (needs GitHub Pages on).
 - **Status:** [DASHBOARD.md](DASHBOARD.md), or the web page at https://ksouth.github.io/decodendis-archive/ once GitHub Pages is turned on.
 - **Schedule:** captured once. Change `schedule:` in `sites.yaml` to `monthly` or `weekly` to keep capturing it.
 
@@ -37,6 +38,8 @@ Each capture is a release named after the site and date, with these files:
 | `documents.zip` | Every linked document (PDF, Word, Excel, CSV, PowerPoint, ZIP and similar) as ordinary files, in folders by website and path. Includes documents the site links to on *other* websites. Split into `documents-1.zip`, `documents-2.zip`, … if very large. Not included when the site has no documents. |
 | `documents.csv` | One row per document: its place in the zip, source URL, the page that linked to it, type, size, SHA-256, and whether it came from the crawl or from another site. |
 | `site-files.zip`, `site-files.csv` | Only with `site_files: true`. Every file the crawl captured (HTML, CSS, scripts, images, fonts, documents) exactly as the server sent it, in folders by website and path, with an index. Useful for reusing or rebuilding a site's own files (with the owner's permission). Pages without an extension are saved as `.html`, and other files without one get an extension from their type (e.g. `.css`). |
+| `doc-<id>-<name>` files | Each captured document on its own (up to 900 per capture), so the page list can link straight to it. |
+| `capture-index.json` | The data behind the capture's page list (see below). |
 | `crawl-report.md` | Pages captured and failed, sizes, and every linked document that could not be captured and why. Also shown as the release description. |
 
 ## Dashboard
@@ -47,9 +50,9 @@ After every run, the workflow rebuilds a dashboard with one row per site:
 |---|---|
 | Site | The site's name and address. |
 | Schedule | `once`, `weekly`, `monthly` or `off`; `one-off` for captures of sites not in `sites.yaml`. |
-| Last capture | When the latest capture finished. The web page shows it in your local time, 12-hour, with the time zone name in brackets; `DASHBOARD.md` shows UTC. |
+| Last capture | When the latest capture finished. The web page shows it in your local time, 12-hour, with the time zone's short name, e.g. "6:07 pm (AET)"; `DASHBOARD.md` shows UTC. |
 | Status | Complete, In progress (still continuing across parts), Waiting (not captured yet), Stopped (an incomplete capture that won't continue), Off, or Failed. A failed capture links to its log, and stays marked until a later capture succeeds. |
-| Pages | Pages captured, and how many failed to load. |
+| Pages | Pages captured, and how many failed to load. Clicking the number opens the capture's page list (see below). |
 | Documents | Documents captured. Clicking the number downloads `documents.zip` straight away; its size is shown with the link. |
 | Site files | Files captured with `site_files`. Clicking the number downloads `site-files.zip` straight away, with its size shown; `off` when `site_files` is off for that site. |
 | Size | Total size of the capture's files. |
@@ -59,6 +62,27 @@ After every run, the workflow rebuilds a dashboard with one row per site:
 The web page says above the table which links download files. When a capture has several zips (a large site captured in parts), the number opens the release page instead of downloading.
 
 Sites that aren't in `sites.yaml`, such as one-off runs, are listed separately.
+
+### Page list for each capture
+
+Each capture also gets a page list at `captures/<site>/<capture>/` on the web page, listing everything it captured:
+
+1. **Home page**: the site's starting page (after any redirect).
+2. **Linked from the home page**: pages the home page links to.
+3. **Other pages, by folder and subdomain**: the rest, grouped as `example.org/news/`, `blog.example.org/`, and so on.
+4. **Documents**: from the site, and from other websites, each with a **Download** link to that one file.
+
+Every entry shows its name, source address (a link to the live site), and these fields:
+
+| Field | Shows |
+|---|---|
+| Format | **WACZ** (in the web archive), **Site** (in `site-files.zip`), or **WACZ + Site**. Documents fetched from other websites are in neither, so show `documents.zip`. |
+| Type | Web page, PDF, Word document, Excel spreadsheet, and so on. |
+| Size | The file's size. |
+| Captured | When it was captured, in your local time. |
+| File | Where it's kept: the `.wacz` file name, and its path inside `site-files.zip` or `documents.zip`. |
+
+A filter box at the top narrows the list as you type. Page lists need `web_page: true` and GitHub Pages turned on, and exist for captures made after this feature was added.
 
 Choose the formats in `sites.yaml`:
 

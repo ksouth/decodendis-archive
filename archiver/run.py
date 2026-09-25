@@ -10,13 +10,14 @@ crawler's saved state (crawl-state.yaml), and the next run continues from it.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
-from . import extract
+from . import extract, pagelist
 
 CRAWLER_IMAGE = "webrecorder/browsertrix-crawler:1.14.3"
 # Stop each part before its WACZ could reach GitHub's 2 GiB limit for a release file.
@@ -205,10 +206,31 @@ def main() -> int:
     assets = [out / f"{slug}-{job['capture'].lower()}-part{part}.wacz"]
     run(["cp", str(wacz), str(assets[0])])
     assets += extract.write_outputs(scan.documents, out)
-    extract.cleanup(scan.documents)
+    # Each document also as its own release file, so the page list can link straight to it.
+    doc_assets = {}
+    if len(scan.documents) <= pagelist.MAX_DOCUMENT_ASSETS:
+        files_dir, used = out / "files", set()
+        files_dir.mkdir(exist_ok=True)
+        for doc in scan.documents:
+            if doc.size < pagelist.MAX_ASSET_BYTES:
+                name = pagelist.asset_name(doc.sha256, doc.filename or doc.url, used)
+                shutil.copyfile(doc.tmp_path, files_dir / name)
+                assets.append(files_dir / name)
+                doc_assets[id(doc)] = name
+    else:
+        print(f"::notice::{len(scan.documents)} documents: too many to upload one by one; they are in documents.zip.")
+    site_paths = {}
     if site["site_files"]:
         assets += extract.write_outputs(scan.site_files, out, name="site-files")
+        for f in scan.site_files:
+            site_paths.setdefault(f.url, f"{f.zip_file} › {f.path}")
         extract.cleanup(scan.site_files)
+    release_url = f"{repo_url}/releases/tag/{tag}"
+    index = pagelist.build_index(site, slug, job["capture"], part, release_url, f"{repo_url}/releases/download/{tag}/",
+                                 assets[0].name, scan, doc_assets, site_paths)
+    extract.cleanup(scan.documents)
+    (out / "capture-index.json").write_text(json.dumps(index))
+    assets.append(out / "capture-index.json")
     if partial:
         run(["cp", str(saved_states[-1]), str(out / "crawl-state.yaml")])
         assets.append(out / "crawl-state.yaml")

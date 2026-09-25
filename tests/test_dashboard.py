@@ -121,6 +121,15 @@ class DashboardTest(unittest.TestCase):
                                r'<span class="hint">download zip, 10 B</span></span></a>')
         self.assertIn('<p class="notice"><strong>Downloads:</strong>', page)
 
+    def test_page_list_links(self):
+        m = build([self.monthly, self.big, self.new, self.paused], self.releases, NOW, [], DAILY,
+                  lists={("a-example", "20260910T000000Z")})
+        md = render_md(m, REPO)
+        self.assertIn("[12 (3 failed) (view list)](https://me.github.io/archive/captures/a-example/20260910T000000Z/)", md)
+        self.assertNotIn("1,800 (view list)", md)  # no page list for that capture
+        page = render_html(m, REPO)
+        self.assertIn('<a href="captures/a-example/20260910T000000Z/">', page)
+
     def test_no_emoji(self):
         m = self.model([{"name": "new-example (part 1)", "conclusion": "failure",
                          "completed_at": "2026-09-25T11:00:00Z", "html_url": "L"}])

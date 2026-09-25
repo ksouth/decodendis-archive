@@ -127,12 +127,20 @@ jobs:
             gh api "repos/${{ github.repository }}/actions/runs/$id/jobs" \
               --jq '.jobs[] | {name, conclusion, completed_at, html_url}' || true
           done > "$RUNNER_TEMP/jobs.jsonl"
+          # Each capture's page-list data (capture-index.json), for its page list.
+          mkdir -p "$RUNNER_TEMP/indexes"
+          jq -r 'select(any(.assets[]; .name == "capture-index.json")) | .tag_name' "$RUNNER_TEMP/releases.jsonl" |
+            while read -r tag; do
+              gh release download "$tag" -p capture-index.json --clobber \
+                -O "$RUNNER_TEMP/indexes/$(echo "$tag" | tr '/' '_').json" || true
+            done
           python -m archiver.dashboard --releases "$RUNNER_TEMP/releases.jsonl" --jobs "$RUNNER_TEMP/jobs.jsonl" \
+            --indexes "$RUNNER_TEMP/indexes" \
             --repo-url "${{ github.server_url }}/${{ github.repository }}" | tee "$RUNNER_TEMP/dashboard.log"
           if grep -q '^web_page=true' "$RUNNER_TEMP/dashboard.log" && ! gh api "repos/${{ github.repository }}/pages" > /dev/null 2>&1; then
             echo "::notice::docs/index.html was updated, but GitHub Pages is off. To publish it: Settings -> Pages -> Deploy from a branch -> main, /docs."
           fi
-          git add -A -- DASHBOARD.md docs/index.html 2>/dev/null || true
+          git add -A -- DASHBOARD.md docs 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -17,6 +17,7 @@ import urllib.request
 import urllib.robotparser
 import zipfile
 from dataclasses import dataclass, field
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
@@ -71,12 +72,25 @@ class Document:
 
 
 @dataclass
+class Page:
+    """A captured web page, for the capture's page list."""
+    url: str
+    title: str
+    content_type: str
+    size: int
+    captured_at: str
+
+
+@dataclass
 class ScanResult:
     documents: List[Document] = field(default_factory=list)
     site_files: List[Document] = field(default_factory=list)  # every captured file, when requested
     links: Dict[str, str] = field(default_factory=dict)  # target URL -> first page linking it
     captured: Set[str] = field(default_factory=set)
     pages: int = 0
+    page_list: List[Page] = field(default_factory=list)  # each captured page once, in capture order
+    page_links: Dict[str, List[str]] = field(default_factory=dict)  # page URL -> links on that page
+    redirects: Dict[str, str] = field(default_factory=dict)  # URL -> where it redirected
 
 
 class LinkParser(HTMLParser):
@@ -98,6 +112,14 @@ class LinkParser(HTMLParser):
             value = dict(attrs).get(attr)
             if value and not value.startswith(("javascript:", "mailto:", "tel:", "data:", "#")):
                 self.links.append(normalise_url(urljoin(self.base, value.strip())))
+
+
+TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+
+def page_title(text: str) -> str:
+    m = TITLE_RE.search(text)
+    return html_unescape(re.sub(r"\s+", " ", m.group(1)).strip()) if m else ""
 
 
 def normalise_url(url: str) -> str:
@@ -202,7 +224,10 @@ def scan_warcs(warcs: Iterable, extensions: Iterable[str], tmp_dir: Path, site_f
                 url = normalise_url(record.rec_headers.get_header("WARC-Target-URI") or "")
                 if not url.startswith(("http://", "https://")):
                     continue
-                if record.http_headers.get_statuscode() != "200":
+                status = record.http_headers.get_statuscode() or ""
+                if status.startswith("3") and record.http_headers.get_header("Location"):
+                    result.redirects.setdefault(url, normalise_url(urljoin(url, record.http_headers.get_header("Location"))))
+                if status != "200":
                     continue
                 result.captured.add(url)
                 ctype = record.http_headers.get_header("Content-Type") or ""
@@ -220,16 +245,28 @@ def scan_warcs(warcs: Iterable, extensions: Iterable[str], tmp_dir: Path, site_f
                         with tmp.open("rb") as fh_html:
                             raw = fh_html.read(MAX_HTML_BYTES)
                 else:
-                    raw = record.content_stream().read(MAX_HTML_BYTES)
+                    stream = record.content_stream()
+                    raw = stream.read(MAX_HTML_BYTES)
+                    size = len(raw)
+                    while True:  # count the rest of a very large page without keeping it
+                        chunk = stream.read(1 << 20)
+                        if not chunk:
+                            break
+                        size += len(chunk)
                 if is_html:
                     result.pages += 1
+                    text = raw.decode("utf-8", errors="replace")
                     parser = LinkParser(url)
                     try:
-                        parser.feed(raw.decode("utf-8", errors="replace"))
+                        parser.feed(text)
                     except Exception:
                         pass  # Keep whatever links were found before a parse error.
                     for link in parser.links:
                         result.links.setdefault(link, url)
+                    if url not in result.page_links:
+                        result.page_links[url] = parser.links
+                        result.page_list.append(Page(url=url, title=page_title(text), content_type=base_type(ctype),
+                                                     size=size, captured_at=captured_at))
                 if tmp is None:
                     continue
                 keep_site = site_files and (url, sha) not in kept
