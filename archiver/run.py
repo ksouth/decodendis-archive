@@ -90,6 +90,12 @@ def scan_collection(collection_dir: Path, wacz: Path, site: dict, tmp: Path) -> 
         total.pages += part.pages
         for url, page in part.links.items():
             total.links.setdefault(url, page)
+        for page in part.page_list:
+            if page.url not in total.page_links:
+                total.page_list.append(page)
+                total.page_links[page.url] = part.page_links.get(page.url, [])
+        for url, target in part.redirects.items():
+            total.redirects.setdefault(url, target)
     for doc in total.documents:
         doc.linked_from = doc.linked_from or total.links.get(doc.url, "")
     return total
