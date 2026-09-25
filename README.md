@@ -50,11 +50,13 @@ After every run, the workflow rebuilds a dashboard with one row per site:
 | Last capture | When the latest capture finished. The web page shows it in your local time, 12-hour, with the time zone name in brackets; `DASHBOARD.md` shows UTC. |
 | Status | Complete, In progress (still continuing across parts), Waiting (not captured yet), Stopped (an incomplete capture that won't continue), Off, or Failed. A failed capture links to its log, and stays marked until a later capture succeeds. |
 | Pages | Pages captured, and how many failed to load. |
-| Documents | Documents captured. Click to download `documents.zip`. |
-| Site files | Files in `site-files.zip` (click to download), or `off` when `site_files` is off for that site. |
+| Documents | Documents captured. Clicking the number downloads `documents.zip` straight away; its size is shown with the link. |
+| Site files | Files captured with `site_files`. Clicking the number downloads `site-files.zip` straight away, with its size shown; `off` when `site_files` is off for that site. |
 | Size | Total size of the capture's files. |
 | Next run | Date and time of the next scheduled capture, worked out with the same rules the workflow uses; `continuing now` while a large site is between parts; `none (once)` for a site captured once. |
-| Files | Opens the capture's release page, with every file from that capture. |
+| Files | "Open page" opens the capture's release page, listing every file from that capture. Nothing downloads until you choose a file there. |
+
+The web page says above the table which links download files. When a capture has several zips (a large site captured in parts), the number opens the release page instead of downloading.
 
 Sites that aren't in `sites.yaml`, such as one-off runs, are listed separately.
 

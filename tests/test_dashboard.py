@@ -77,13 +77,15 @@ class DashboardTest(unittest.TestCase):
 
     def test_markdown_links_and_values(self):
         md = render_md(self.model(), REPO)
-        self.assertIn(f"[2]({REPO}/releases/download/t/documents.zip)", md)
-        self.assertIn(f"[40]({REPO}/releases/download/t/site-files.zip)", md)
+        self.assertIn(f"[2 (download zip, 10 B)]({REPO}/releases/download/t/documents.zip)", md)
+        self.assertIn(f"[40 (download zip, 10 B)]({REPO}/releases/download/t/site-files.zip)", md)
+        self.assertIn("(opens release page)", md)  # big.example's documents have no zip asset in this fixture
+        self.assertIn("**Clicking a Documents or Site files number downloads a zip file**", md)
         self.assertIn("12 (3 failed)", md)
         self.assertIn("| off |", md)  # site files turned off for big.example
         self.assertIn("2026-09-10 02:30 UTC", md)
         self.assertIn("2026-10-10 03:17 UTC", md)
-        self.assertIn(f"[open]({REPO}/releases/tag/archive/a-example/20260910T000000Z-part1)", md)
+        self.assertIn(f"[open page]({REPO}/releases/tag/archive/a-example/20260910T000000Z-part1)", md)
         self.assertIn("## One-off captures", md)
         self.assertIn("daily check runs at 03:17 UTC", md)
 
@@ -115,7 +117,9 @@ class DashboardTest(unittest.TestCase):
         self.assertIn('class="status in-progress"', page)
         self.assertIn('<time datetime="2026-09-10T02:30:00Z">', page)
         # Label and value sit inside the same link, so both are clickable.
-        self.assertRegex(page, r'<a href="[^"]+documents\.zip"><span class="lbl">Documents</span><span class="val">2</span></a>')
+        self.assertRegex(page, r'<a href="[^"]+documents\.zip"><span class="lbl">Documents</span><span class="val">2'
+                               r'<span class="hint">download zip, 10 B</span></span></a>')
+        self.assertIn('<p class="notice"><strong>Downloads:</strong>', page)
 
     def test_no_emoji(self):
         m = self.model([{"name": "new-example (part 1)", "conclusion": "failure",

@@ -104,8 +104,8 @@ def group_captures(releases: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, A
             "size": sum(a.get("size", 0) for a in assets),
             "release_url": last.get("html_url", ""),
             "url": url,
-            "document_zips": [a["browser_download_url"] for a in assets if re.match(r"documents(-\d+)?\.zip$", a.get("name", ""))],
-            "site_zips": [a["browser_download_url"] for a in assets if re.match(r"site-files(-\d+)?\.zip$", a.get("name", ""))],
+            "document_zips": [a for a in assets if re.match(r"documents(-\d+)?\.zip$", a.get("name", ""))],
+            "site_zips": [a for a in assets if re.match(r"site-files(-\d+)?\.zip$", a.get("name", ""))],
             **totals,
         })
     for captures in by_site.values():
@@ -180,8 +180,18 @@ STATUS_LABELS = {"complete": "Complete", "in progress": "In progress", "waiting"
                  "off": "Off", "stopped": "Stopped", "failed": "Failed"}
 
 
-def cell_values(row: Dict[str, Any]) -> List[Tuple[str, str, Optional[str], str]]:
-    """(label, text, link, css class) for each column, shared by the Markdown and HTML versions."""
+def zip_link(zips: List[Dict[str, Any]], release_url: str) -> Tuple[str, str]:
+    """(link, hint) for a count of files: download the zip, or open the release when there are several zips."""
+    if len(zips) == 1:
+        return zips[0]["browser_download_url"], f"download zip, {human(zips[0].get('size', 0))}"
+    return release_url, f"opens release: {len(zips)} zips" if zips else "opens release page"
+
+
+def cell_values(row: Dict[str, Any]) -> List[Tuple[str, str, Optional[str], str, str]]:
+    """(label, text, link, css class, hint) for each column, shared by the Markdown and HTML versions.
+
+    hint says what a link does when it isn't obvious, e.g. that it downloads a file.
+    """
     c = row["latest"]
     status = STATUS_LABELS[row["status"]]
     status_link = None
@@ -196,26 +206,26 @@ def cell_values(row: Dict[str, Any]) -> List[Tuple[str, str, Optional[str], str]
     pages = f"{c.get('pages', 0):,}" + (f" ({c['failed']:,} failed)" if c.get("failed") else "") if c else "—"
     docs = c.get("documents", 0) + c.get("offsite_documents", 0) if c else None
     doc_text = "—" if docs is None else f"{docs:,}"
-    doc_link = None
-    if docs:
-        doc_link = c["document_zips"][0] if len(c["document_zips"]) == 1 else c["release_url"]
+    doc_link, doc_hint = zip_link(c["document_zips"], c["release_url"]) if docs else (None, "")
+    site_link, site_hint = None, ""
     if row["site_files_on"] is False:
-        site_text, site_link = "off", None
+        site_text = "off"
     elif c and "site_files" in c:
         site_text = f"{c['site_files']:,}"
-        site_link = (c["site_zips"][0] if len(c["site_zips"]) == 1 else c["release_url"]) if c["site_files"] else None
+        if c["site_files"]:
+            site_link, site_hint = zip_link(c["site_zips"], c["release_url"])
     else:
-        site_text, site_link = "—", None
+        site_text = "—"
     nxt = row["next"]
     return [
-        ("Last capture", fmt_time(c["finished"]) if c else "never", None, "time" if c else ""),
-        ("Status", status, status_link, "status " + row["status"].replace(" ", "-")),
-        ("Pages", pages, None, "num"),
-        ("Documents", doc_text, doc_link, "num"),
-        ("Site files", site_text, site_link, "num"),
-        ("Size", human(c["size"]) if c else "—", None, "num"),
-        ("Next run", fmt_time(nxt) if isinstance(nxt, datetime) else nxt, None, "time" if isinstance(nxt, datetime) else ""),
-        ("Files", "open" if c else "—", c["release_url"] if c else None, ""),
+        ("Last capture", fmt_time(c["finished"]) if c else "never", None, "time" if c else "", ""),
+        ("Status", status, status_link, "status " + row["status"].replace(" ", "-"), ""),
+        ("Pages", pages, None, "num", ""),
+        ("Documents", doc_text, doc_link, "num", doc_hint),
+        ("Site files", site_text, site_link, "num", site_hint),
+        ("Size", human(c["size"]) if c else "—", None, "num", ""),
+        ("Next run", fmt_time(nxt) if isinstance(nxt, datetime) else nxt, None, "time" if isinstance(nxt, datetime) else "", ""),
+        ("Files", "open page" if c else "—", c["release_url"] if c else None, "files", ""),
     ]
 
 
@@ -231,7 +241,8 @@ def render_md(model: Dict[str, Any], repo_url: str) -> str:
                "|---|---|---|---|---|---|---|---|---|---|"]
         for row in rows:
             name = f"**{row['slug']}**" + (f"<br>{row['url']}" if row["url"] else "")
-            values = [f"[{text}]({link})" if link else text for _, text, link, _ in cell_values(row)]
+            values = [f"[{text} ({hint})]({link})" if link and hint else f"[{text}]({link})" if link else text
+                      for _, text, link, _, hint in cell_values(row)]
             out.append("| " + " | ".join([name, row["schedule"], *values]) + " |")
         return out
 
@@ -244,9 +255,10 @@ def render_md(model: Dict[str, Any], repo_url: str) -> str:
                   "Captures of sites that aren't in `sites.yaml`, such as runs started from the Run workflow form. "
                   "They are never repeated or continued.", ""]
         lines += table(model["other"])
-    lines += ["", "**Documents** and **Site files** link to the zip of those files (or to the release page when a "
-              "capture has several). **Files** opens the release with everything from that capture. Counts and size "
-              "cover every part of the latest capture; documents include those fetched from other websites."]
+    lines += ["", "**Clicking a Documents or Site files number downloads a zip file** of those files (its size is shown), "
+              "or opens the release page when a capture has several zips. **Files** opens the release page, which lists "
+              "everything from that capture; nothing downloads until you choose a file there. Counts and size cover every "
+              "part of the latest capture; documents include those fetched from other websites."]
     return "\n".join(lines) + "\n"
 
 
@@ -266,6 +278,8 @@ body {{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui
 main {{ max-width:1200px; margin:0 auto; padding:32px 16px 48px; }}
 h1 {{ font-size:26px; margin:0 0 4px; }} h2 {{ font-size:18px; margin:36px 0 4px; }}
 p.lede, p.note {{ color:var(--muted); margin:0 0 20px; }}
+p.notice {{ margin:0 0 16px; padding:10px 14px; border:1px solid var(--line); border-left:3px solid var(--accent);
+  border-radius:6px; background:var(--card); }}
 a {{ color:var(--accent); }}
 .wrap {{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--card); }}
 table {{ border-collapse:collapse; width:100%; min-width:900px; }}
@@ -273,8 +287,10 @@ th, td {{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--line
 th {{ font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }}
 tr:last-child td {{ border-bottom:0; }}
 td.num, th.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
-td.num {{ white-space:nowrap; }} td.time {{ min-width:150px; }}
+td.num, td.files {{ white-space:nowrap; }} td.time {{ min-width:150px; }}
 .lbl {{ display:none; }}
+.hint {{ display:block; font-size:12px; color:var(--muted); font-weight:400; white-space:nowrap; }}
+a .hint {{ color:inherit; opacity:.8; }}
 .site {{ font-weight:600; }} .url {{ display:block; font-size:13px; color:var(--muted); word-break:break-all; }}
 .status {{ font-weight:600; }}
 .complete {{ color:var(--ok); }} .in-progress, .stopped {{ color:var(--run); }} .failed, .failed a {{ color:var(--bad); }}
@@ -298,9 +314,11 @@ td.num {{ white-space:nowrap; }} td.time {{ min-width:150px; }}
 <h1>Archive dashboard</h1>
 <p class="lede">Latest capture: {updated}.{daily} Every capture is under <a href="{repo_url}/releases">Releases</a>;
 open a <code>.wacz</code> file at <a href="https://replayweb.page">replayweb.page</a> to browse it.</p>
+<p class="notice"><strong>Downloads:</strong> clicking a number under <strong>Documents</strong> or
+<strong>Site files</strong> downloads a zip file straight away; its size is shown under the number.
+<strong>Open page</strong> under <strong>Files</strong> opens the capture's release page and downloads nothing.</p>
 {sections}
-<p class="note"><strong>Documents</strong> and <strong>Site files</strong> download the zip of those files (or open the
-release page when a capture has several). <strong>Files</strong> opens the release with everything from that capture.
+<p class="note">When a capture has several zips, the number opens its release page instead of downloading.
 Counts and size cover every part of the latest capture; documents include those fetched from other websites.
 Times are in your local time.</p>
 </main>
@@ -353,8 +371,11 @@ def render_html(model: Dict[str, Any], repo_url: str) -> str:
             url = f'<a class="url" href="{esc(row["url"])}">{esc(row["url"])}</a>' if row["url"] else ""
             tds = [f'<td class="name"><span class="site">{esc(row["slug"])}</span>{url}</td>',
                    f'<td><span class="cell"><span class="lbl">Schedule</span><span class="val">{esc(row["schedule"])}</span></span></td>']
-            for label, text, link, cls in cell_values(row):
-                inner = f'<span class="lbl">{label}</span><span class="val">{time_html(text) if "time" in cls else esc(text)}</span>'
+            for label, text, link, cls, hint in cell_values(row):
+                value = time_html(text) if "time" in cls else esc(text)
+                if hint:
+                    value += f'<span class="hint">{esc(hint)}</span>'
+                inner = f'<span class="lbl">{label}</span><span class="val">{value}</span>'
                 inner = f'<a href="{esc(link)}">{inner}</a>' if link else f'<span class="cell">{inner}</span>'
                 tds.append(f'<td class="{cls}">{inner}</td>')
             body.append("<tr>" + "".join(tds) + "</tr>")
