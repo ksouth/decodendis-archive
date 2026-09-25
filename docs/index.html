@@ -21,7 +21,7 @@ th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line)
 th { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }
 tr:last-child td { border-bottom:0; }
 td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-td.num, td.time { white-space:nowrap; }
+td.num { white-space:nowrap; } td.time { min-width:150px; }
 .lbl { display:none; }
 .site { font-weight:600; } .url { display:block; font-size:13px; color:var(--muted); word-break:break-all; }
 .status { font-weight:600; }
@@ -35,7 +35,8 @@ td.num, td.time { white-space:nowrap; }
   td > a, td > span.cell { display:flex; justify-content:space-between; gap:16px; }
   .lbl { display:inline; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em;
     font-weight:400; flex:none; }
-  .val { text-align:right; }
+  .val { text-align:right; min-width:0; }
+  td.time { min-width:0; }
   td.name { padding-bottom:6px; }
 }
 </style>
@@ -49,21 +50,33 @@ open a <code>.wacz</code> file at <a href="https://replayweb.page">replayweb.pag
 <p class="note"><strong>Documents</strong> and <strong>Site files</strong> download the zip of those files (or open the
 release page when a capture has several). <strong>Files</strong> opens the release with everything from that capture.
 Counts and size cover every part of the latest capture; documents include those fetched from other websites.
-Times are shown in your time zone.</p>
+Times are in your local time.</p>
 </main>
 <script>
+// Show every time in the viewer's own time zone, 12-hour, followed by the zone's name in brackets.
+function zoneName(d) {
+  var styles = ["longGeneric", "long"];  // "Australian Eastern Time"; older browsers only have "long"
+  for (var i = 0; i < styles.length; i++) {
+    try {
+      var part = new Intl.DateTimeFormat(undefined, { timeZoneName: styles[i] }).formatToParts(d)
+        .filter(function (p) { return p.type === "timeZoneName"; })[0];
+      if (part) return part.value;
+    } catch (e) {}
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
 document.querySelectorAll("time[datetime]").forEach(function (el) {
   var d = new Date(el.getAttribute("datetime"));
   if (isNaN(d)) return;
-  var zone = d.toLocaleTimeString(undefined, { timeZoneName: "short" }).split(" ").pop();
+  var clock = { hour: "numeric", minute: "2-digit", hour12: true };
   if (el.hasAttribute("data-time-only")) {
-    // Today's date, so the local time reflects daylight saving now.
+    // Use today's date, so the time reflects daylight saving as it is now.
     var now = new Date();
     d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()));
-    el.textContent = d.toLocaleTimeString(undefined, { timeStyle: "short" }) + " " +
-      d.toLocaleTimeString(undefined, { timeZoneName: "short" }).split(" ").pop();
+    el.textContent = d.toLocaleTimeString(undefined, clock) + " (" + zoneName(d) + ")";
   } else {
-    el.textContent = d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) + " " + zone;
+    el.textContent = d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) + ", " +
+      d.toLocaleTimeString(undefined, clock) + " (" + zoneName(d) + ")";
   }
 });
 </script>
