@@ -1,6 +1,12 @@
 # NDIS Decoded archive
 
-Captures of https://decodendis.pplx.app, made with the [SCRAPE](https://github.com/ksouth/SCRAPE) website archiver template. Captures are under **Releases**.
+Captures of [NDIS Decoded](https://decodendis.pplx.app), made with the [SCRAPE](https://github.com/ksouth/SCRAPE) website archiver template.
+
+- **Captures:** under [Releases](https://github.com/ksouth/decodendis-archive/releases). Each has the site as a web archive (`.wacz`) and, because this repository sets `site_files: true`, every file of the site as ordinary files in `site-files.zip`.
+- **Status:** [DASHBOARD.md](DASHBOARD.md), or the web page at https://ksouth.github.io/decodendis-archive/ once GitHub Pages is turned on.
+- **Schedule:** captured once. Change `schedule:` in `sites.yaml` to `monthly` or `weekly` to keep capturing it.
+
+The site's content belongs to its author. These captures are for archival reference; reuse needs their permission.
 
 ## About the archiver
 
@@ -28,16 +34,30 @@ Each capture is a release named after the site and date, with these files:
 | File | What it is |
 |---|---|
 | `<site>-<date>-part1.wacz` | The whole site as a standard web archive. Open https://replayweb.page and choose the file to click through the site exactly as it was captured. It runs in your browser; nothing is uploaded. |
-| `documents.zip` | Every linked document (PDF, Word, Excel, CSV, PowerPoint, ZIP and similar) as ordinary files, in folders by website and path. Includes documents the site links to on *other* websites. Split into `documents-1.zip`, `documents-2.zip`, … if very large. |
+| `documents.zip` | Every linked document (PDF, Word, Excel, CSV, PowerPoint, ZIP and similar) as ordinary files, in folders by website and path. Includes documents the site links to on *other* websites. Split into `documents-1.zip`, `documents-2.zip`, … if very large. Not included when the site has no documents. |
 | `documents.csv` | One row per document: its place in the zip, source URL, the page that linked to it, type, size, SHA-256, and whether it came from the crawl or from another site. |
-| `site-files.zip`, `site-files.csv` | Only with `site_files: true`. Every file the crawl captured (HTML, CSS, scripts, images, fonts, documents) exactly as the server sent it, in folders by website and path, with an index. Useful for reusing or rebuilding a site's own files (with the owner's permission). Pages without an extension are saved as `.html`. |
+| `site-files.zip`, `site-files.csv` | Only with `site_files: true`. Every file the crawl captured (HTML, CSS, scripts, images, fonts, documents) exactly as the server sent it, in folders by website and path, with an index. Useful for reusing or rebuilding a site's own files (with the owner's permission). Pages without an extension are saved as `.html`, and other files without one get an extension from their type (e.g. `.css`). |
 | `crawl-report.md` | Pages captured and failed, sizes, and every linked document that could not be captured and why. Also shown as the release description. |
+
+## Dashboard
+
+After every run, the workflow rebuilds a dashboard listing each site: its schedule, last capture, status (complete, in progress, waiting, stopped, or off), pages, documents, site files, size, and when it runs next. Each date links to that capture's release. Sites that aren't in `sites.yaml`, such as one-off runs, are listed separately.
+
+Choose the formats in `sites.yaml`:
+
+```yaml
+dashboard:
+  markdown: true    # DASHBOARD.md in this repository, readable on GitHub
+  web_page: true    # docs/index.html, a web page for GitHub Pages
+```
+
+The workflow writes the web page but can't publish it by itself: to put it online, turn on **Settings → Pages → Deploy from a branch → main, /docs** once. Set `web_page: false` if you don't want it.
 
 Pages are captured in a real browser ([Browsertrix Crawler](https://github.com/webrecorder/browsertrix-crawler) from Webrecorder), so sites that build pages with JavaScript are captured too.
 
 ## `sites.yaml` settings
 
-Set any of these under `defaults:` for every site, or on one site to override.
+Set any of these under `defaults:` for every site, or on one site to override. The `dashboard:` section is described above.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -72,6 +92,10 @@ Set any of these under `defaults:` for every site, or on one site to override.
 - When a page limit is set, the sitemap is not used, so a quick test follows the starting page's own links.
 - Each part's `documents.zip` contains the documents found during that part.
 - Releases are public if the repository is public. Use a private repository for anything that shouldn't be.
+
+## Updating a copy
+
+A repository made from this template doesn't receive later changes to it. To update a copy, replace its `archiver/`, `tests/` and `.github/workflows/` folders with the ones from [ksouth/SCRAPE](https://github.com/ksouth/SCRAPE), and compare its `sites.yaml` comments and this README for new settings. Keep your own `sites.yaml` entries.
 
 ## Run the tests
 

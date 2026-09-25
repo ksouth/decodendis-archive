@@ -97,6 +97,18 @@ def load_sites(path: Path) -> List[Dict[str, Any]]:
     return sites
 
 
+DASHBOARD_DEFAULTS = {"markdown": True, "web_page": True}
+
+
+def load_dashboard_settings(path: Path) -> Dict[str, bool]:
+    data = yaml.safe_load(Path(path).read_text()) or {}
+    raw = data.get("dashboard") or {}
+    unknown = set(raw) - set(DASHBOARD_DEFAULTS)
+    if unknown:
+        raise ConfigError(f"Unknown dashboard settings: {sorted(unknown)}")
+    return {**DASHBOARD_DEFAULTS, **{k: bool(v) for k, v in raw.items()}}
+
+
 def find_site(sites: List[Dict[str, Any]], key: str) -> Optional[Dict[str, Any]]:
     key = key.strip()
     for site in sites:

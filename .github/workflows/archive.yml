@@ -24,6 +24,7 @@ on:
 permissions:
   contents: write
   actions: write  # to start the next run when a capture needs another part
+  pages: read     # to warn when the dashboard web page is on but GitHub Pages is off
 
 # One run at a time, so two runs never continue the same partial capture.
 concurrency:
@@ -101,3 +102,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run archive.yml --ref "${{ github.ref_name }}"
+
+  # Rebuild DASHBOARD.md and docs/index.html (see "dashboard:" in sites.yaml).
+  dashboard:
+    needs: [plan, archive]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r archiver/requirements.txt
+      - name: Build and commit the dashboard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/releases" --jq '.[]' > "$RUNNER_TEMP/releases.jsonl"
+          python -m archiver.dashboard --releases "$RUNNER_TEMP/releases.jsonl" \
+            --repo-url "${{ github.server_url }}/${{ github.repository }}" | tee "$RUNNER_TEMP/dashboard.log"
+          if grep -q '^web_page=true' "$RUNNER_TEMP/dashboard.log" && ! gh api "repos/${{ github.repository }}/pages" > /dev/null 2>&1; then
+            echo "::notice::docs/index.html was updated, but GitHub Pages is off. To publish it: Settings -> Pages -> Deploy from a branch -> main, /docs."
+          fi
+          git add -A -- DASHBOARD.md docs/index.html 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Update dashboard"
+            git pull --rebase -q origin "${{ github.ref_name }}"
+            git push
+          fi

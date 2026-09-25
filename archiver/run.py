@@ -149,6 +149,12 @@ def write_report(path: Path, job: dict, stats: dict, wacz: Path, scan: extract.S
         if len(failures) > REPORT_LIST_LIMIT:
             lines.append(f"- … and {len(failures) - REPORT_LIST_LIMIT} more")
     lines += ["", f"Made with [{repo_url.rsplit('/', 1)[-1]}]({repo_url})."]
+    machine = {"pages": int(stats.get("crawled", scan.pages) or 0), "failed": int(stats.get("failed", 0) or 0),
+               "documents": len(crawl_docs), "offsite_documents": len(offsite_docs)}
+    if site["site_files"]:
+        machine["site_files"] = len(scan.site_files)
+    # Read by the dashboard; invisible when the report is shown on GitHub.
+    lines += ["", f"<!-- capture-stats {json.dumps(machine)} -->"]
     path.write_text("\n".join(lines) + "\n")
 
 

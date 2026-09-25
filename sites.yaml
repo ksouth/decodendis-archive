@@ -2,6 +2,11 @@
 # Each capture is published as a GitHub release: a .wacz web archive you can browse at
 # https://replayweb.page, plus documents.zip with every linked file. See README.md.
 
+# The dashboard lists every site and its latest capture, rebuilt after each run.
+dashboard:
+  markdown: true            # DASHBOARD.md in this repository
+  web_page: true            # docs/index.html; to publish it, turn on Settings -> Pages -> main branch, /docs
+
 # Settings here apply to every site unless the site sets its own.
 defaults:
   schedule: once            # once | weekly | monthly | off
