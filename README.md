@@ -30,6 +30,7 @@ Each capture is a release named after the site and date, with these files:
 | `<site>-<date>-part1.wacz` | The whole site as a standard web archive. Open https://replayweb.page and choose the file to click through the site exactly as it was captured. It runs in your browser; nothing is uploaded. |
 | `documents.zip` | Every linked document (PDF, Word, Excel, CSV, PowerPoint, ZIP and similar) as ordinary files, in folders by website and path. Includes documents the site links to on *other* websites. Split into `documents-1.zip`, `documents-2.zip`, … if very large. |
 | `documents.csv` | One row per document: its place in the zip, source URL, the page that linked to it, type, size, SHA-256, and whether it came from the crawl or from another site. |
+| `site-files.zip`, `site-files.csv` | Only with `site_files: true`. Every file the crawl captured (HTML, CSS, scripts, images, fonts, documents) exactly as the server sent it, in folders by website and path, with an index. Useful for reusing or rebuilding a site's own files (with the owner's permission). Pages without an extension are saved as `.html`. |
 | `crawl-report.md` | Pages captured and failed, sizes, and every linked document that could not be captured and why. Also shown as the release description. |
 
 Pages are captured in a real browser ([Browsertrix Crawler](https://github.com/webrecorder/browsertrix-crawler) from Webrecorder), so sites that build pages with JavaScript are captured too.
@@ -45,6 +46,7 @@ Set any of these under `defaults:` for every site, or on one site to override.
 | `schedule` | `once` | `once`, `weekly`, `monthly`, or `off` (keep the entry but don't capture). |
 | `scope` | `host` | `host`: only this host (`www.` and the bare domain both count). `domain`: include subdomains. `prefix`: only URLs under the starting path. |
 | `offsite_documents` | `true` | Also download documents the site links to on other websites. |
+| `site_files` | `false` | Also publish every captured file as ordinary files in `site-files.zip`. The web archive already contains them; this unpacks them. |
 | `respect_robots` | `true` | Obey each site's `robots.txt`. |
 | `use_sitemap` | `true` | Use the site's sitemap to find pages that aren't linked. |
 | `page_limit` | `0` | Stop after this many pages (0 = no limit). |
@@ -66,7 +68,7 @@ Set any of these under `defaults:` for every site, or on one site to override.
 ## Limits
 
 - Only content reachable by links (or listed in the sitemap) is captured. Search results, content behind a login, and pages that need form input are not.
-- Documents are recognised by file extension, by type (PDF, Word, Excel and so on), or by the file name the server sends. Links on other websites are fetched when they end in a document extension or look like downloads (`download`, `attachment`, `/media/`, `/files/`); anything that turns out to be a web page is skipped.
+- Documents are recognised by file extension, by type (PDF, Word, Excel and so on), or by the file name the server sends. Links on other websites are fetched when they end in a document extension or look like downloads (`download`, `attachment`, `/media/<number>/`, `/sites/…/files/`); anything that turns out to be a web page is skipped.
 - When a page limit is set, the sitemap is not used, so a quick test follows the starting page's own links.
 - Each part's `documents.zip` contains the documents found during that part.
 - Releases are public if the repository is public. Use a private repository for anything that shouldn't be.

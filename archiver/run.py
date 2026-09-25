@@ -77,12 +77,14 @@ def warc_streams(collection_dir: Path, wacz: Path) -> Iterator[Tuple[str, object
 
 
 def scan_collection(collection_dir: Path, wacz: Path, site: dict, tmp: Path) -> extract.ScanResult:
+    """Scan every WARC in the collection. Records spanning files are rare; each file is scanned on its own."""
     total = extract.ScanResult()
     for name, stream in warc_streams(collection_dir, wacz):
         print(f"Scanning {name}", flush=True)
         with stream:
-            part = extract.scan_warcs([stream], site["document_extensions"], tmp)
+            part = extract.scan_warcs([stream], site["document_extensions"], tmp, site_files=site["site_files"])
         total.documents += part.documents
+        total.site_files += part.site_files
         total.captured |= part.captured
         total.pages += part.pages
         for url, page in part.links.items():
@@ -110,6 +112,7 @@ def write_report(path: Path, job: dict, stats: dict, wacz: Path, scan: extract.S
         f"| Web archive (WACZ) | {human(wacz.stat().st_size) if wacz.exists() else 'not produced'} |",
         f"| Documents from the site | {len(crawl_docs)} ({human(sum(d.size for d in crawl_docs))}) |",
         f"| Documents from other sites | {len(offsite_docs)} ({human(sum(d.size for d in offsite_docs))}) |",
+        *([f"| Site files | {len(scan.site_files)} ({human(sum(d.size for d in scan.site_files))}) |"] if site["site_files"] else []),
         f"| Scope | {site['scope']}, robots.txt {'respected' if site['respect_robots'] else 'ignored'}"
         + (f", page limit {site['page_limit']}" if site["page_limit"] else "") + " |",
         f"| Crawler | `{CRAWLER_IMAGE}` (exit code {crawler_rc}) |",
@@ -121,6 +124,11 @@ def write_report(path: Path, job: dict, stats: dict, wacz: Path, scan: extract.S
         "- **Documents:** `documents.zip` holds every linked document as an ordinary file, in folders by "
         "website and path. `documents.csv` lists each file's source URL, the page that linked to it, and its SHA-256.",
     ]
+    if site["site_files"]:
+        lines.append(
+            "- **Site files:** `site-files.zip` holds every file the crawl captured (HTML, CSS, scripts, images, fonts, "
+            "documents) exactly as the server sent it, in folders by website and path. `site-files.csv` indexes them."
+        )
     if partial:
         lines += [
             "",
@@ -192,6 +200,9 @@ def main() -> int:
     run(["cp", str(wacz), str(assets[0])])
     assets += extract.write_outputs(scan.documents, out)
     extract.cleanup(scan.documents)
+    if site["site_files"]:
+        assets += extract.write_outputs(scan.site_files, out, name="site-files")
+        extract.cleanup(scan.site_files)
     if partial:
         run(["cp", str(saved_states[-1]), str(out / "crawl-state.yaml")])
         assets.append(out / "crawl-state.yaml")

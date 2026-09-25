@@ -133,6 +133,34 @@ class ExtractTest(unittest.TestCase):
         self.assertNotIn("..", c)
         self.assertEqual(d, "x.org/dir/index")
 
+    def test_site_files(self):
+        scan = extract.scan_warcs([self.warc], self.site["document_extensions"], self.tmp, site_files=True)
+        # Every 200 response once (the repeated identical PDF capture is kept once); the 404 is skipped.
+        self.assertEqual(len(scan.site_files), 5)
+        self.assertEqual(len(scan.documents), 3)
+        docs = extract.write_outputs(scan.documents, self.dir / "out")
+        extract.cleanup(scan.documents)  # removing document temp files must not affect site files
+        written = extract.write_outputs(scan.site_files, self.dir / "out", name="site-files")
+        self.assertEqual([p.name for p in written], ["site-files.zip", "site-files.csv"])
+        with zipfile.ZipFile(written[0]) as zf:
+            names = set(zf.namelist())
+            self.assertIn("www.example.org/index.html", names)
+            self.assertIn("www.example.org/style.css", names)
+            self.assertIn("www.example.org/media/9/Quarterly report Q3.xlsx", names)
+            self.assertEqual(zf.read("www.example.org/files/report.pdf"), PDF)
+            self.assertEqual(zf.read("www.example.org/index.html"), PAGE)
+        with zipfile.ZipFile(docs[0]) as zf:
+            self.assertEqual(zf.read("www.example.org/files/report.pdf"), PDF)
+
+    def test_site_files_off_by_default(self):
+        self.assertEqual(self.scan().site_files, [])
+
+    def test_html_paths(self):
+        used = set()
+        self.assertEqual(extract.zip_path("https://x.org/", used, html=True), "x.org/index.html")
+        self.assertEqual(extract.zip_path("https://x.org/about", used, html=True), "x.org/about.html")
+        self.assertEqual(extract.zip_path("https://x.org/a.html", used, html=True), "x.org/a.html")
+
     def test_disposition_filename(self):
         f = extract.disposition_filename
         self.assertEqual(f('attachment; filename="a b.pdf"'), "a b.pdf")
@@ -146,6 +174,8 @@ class ExtractTest(unittest.TestCase):
         self.assertTrue(extract.looks_like_document_link("https://x.org/media/1/download?attachment", exts))
         self.assertTrue(extract.looks_like_document_link("https://x.org/a/report.PDF", exts))
         self.assertFalse(extract.looks_like_document_link("https://x.org/news/story", exts))
+        self.assertFalse(extract.looks_like_document_link("https://www.health.gov.au/ministers/x/media/speech-22-april", exts))
+        self.assertTrue(extract.looks_like_document_link("https://x.gov.au/sites/default/files/plan", exts))
 
     def test_scope(self):
         site = normalise_site({"url": "https://www.example.org/pubs/list", "scope": "prefix"}, {})

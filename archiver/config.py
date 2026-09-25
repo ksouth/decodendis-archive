@@ -23,6 +23,7 @@ DEFAULTS: Dict[str, Any] = {
     "schedule": "once",
     "scope": "host",
     "offsite_documents": True,
+    "site_files": False,
     "respect_robots": True,
     "use_sitemap": True,
     "page_limit": 0,

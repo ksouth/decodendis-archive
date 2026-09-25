@@ -7,12 +7,14 @@ defaults:
   schedule: once            # once | weekly | monthly | off
   scope: host               # host: this host only | domain: include subdomains | prefix: only URLs under the starting path
   offsite_documents: true   # also download documents the site links to on other websites
+  site_files: false         # also publish every captured file (HTML, CSS, images...) as ordinary files
   respect_robots: true      # obey each site's robots.txt
   page_limit: 0             # stop after this many pages (0 = no limit)
 
 sites:
   - url: https://decodendis.pplx.app/
     name: decodendis
+    site_files: true          # keep every file of this small site, for possible reuse
 
   # Examples; remove the # to use one.
   #

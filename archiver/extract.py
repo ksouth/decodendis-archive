@@ -8,6 +8,7 @@ Output:
 
 import csv
 import hashlib
+import os
 import re
 import tempfile
 import time
@@ -43,7 +44,9 @@ DOCUMENT_TYPES = {
 ZIP_PART_LIMIT = 1_900_000_000
 MAX_HTML_BYTES = 20_000_000
 # Many sites serve documents from links without a file extension, e.g. /media/4907/download?attachment.
-DOWNLOAD_LINK_RE = re.compile(r"download|attachment|getfile|/files?/|/media/|/documents?/", re.IGNORECASE)
+# Deliberately narrow: a broader pattern (e.g. any "/media/") also matches ordinary news pages.
+DOWNLOAD_LINK_RE = re.compile(r"download|attachment|getfile|/media/\d+/|/sites/[^/]+/files/", re.IGNORECASE)
+HTML_TYPES = ("text/html", "application/xhtml+xml")
 CSV_FIELDS = ["zip_file", "path", "url", "linked_from", "content_type", "size_bytes", "sha256", "source", "captured_at"]
 
 
@@ -53,7 +56,7 @@ class Document:
     content_type: str
     size: int
     sha256: str
-    source: str  # "crawl" or "offsite"
+    source: str  # "crawl", "offsite", or "site" (a site file)
     captured_at: str
     tmp_path: Path
     linked_from: str = ""
@@ -65,6 +68,7 @@ class Document:
 @dataclass
 class ScanResult:
     documents: List[Document] = field(default_factory=list)
+    site_files: List[Document] = field(default_factory=list)  # every captured file, when requested
     links: Dict[str, str] = field(default_factory=dict)  # target URL -> first page linking it
     captured: Set[str] = field(default_factory=set)
     pages: int = 0
@@ -117,7 +121,7 @@ def disposition_filename(header: str) -> str:
 
 
 def is_document(url: str, content_type: str, extensions: Iterable[str], disposition: str = "") -> bool:
-    if base_type(content_type) in ("text/html", "application/xhtml+xml"):
+    if base_type(content_type) in HTML_TYPES:
         return False
     extensions = set(extensions)
     return (
@@ -169,10 +173,21 @@ def _stream_to_temp(stream, tmp_dir: Path, max_bytes: int = 0) -> Tuple[Path, in
     return Path(name), size, digest.hexdigest()
 
 
-def scan_warcs(warcs: Iterable, extensions: Iterable[str], tmp_dir: Path) -> ScanResult:
+def _link_copy(path: Path, tmp_dir: Path) -> Path:
+    """A second name for a temp file, so it can be cleaned up independently."""
+    fd, name = tempfile.mkstemp(dir=tmp_dir)
+    os.close(fd)
+    os.unlink(name)
+    os.link(path, name)
+    return Path(name)
+
+
+def scan_warcs(warcs: Iterable, extensions: Iterable[str], tmp_dir: Path, site_files: bool = False) -> ScanResult:
+    """Find pages' links and extract documents. With site_files, also keep every captured file."""
     extensions = set(extensions)
     result = ScanResult()
-    stored: Dict[str, str] = {}  # url -> sha256, to skip repeat captures of the same file
+    stored: Dict[str, str] = {}  # url -> sha256, to skip repeat captures of the same document
+    kept: Set[Tuple[str, str]] = set()  # (url, sha256) of site files already kept
     for warc in warcs:
         fh = open(warc, "rb") if isinstance(warc, (str, Path)) else warc
         with fh:
@@ -187,9 +202,22 @@ def scan_warcs(warcs: Iterable, extensions: Iterable[str], tmp_dir: Path) -> Sca
                 result.captured.add(url)
                 ctype = record.http_headers.get_header("Content-Type") or ""
                 disposition = record.http_headers.get_header("Content-Disposition") or ""
-                if base_type(ctype) in ("text/html", "application/xhtml+xml"):
-                    result.pages += 1
+                captured_at = record.rec_headers.get_header("WARC-Date") or ""
+                is_html = base_type(ctype) in HTML_TYPES
+                is_doc = not is_html and is_document(url, ctype, extensions, disposition)
+                if not (site_files or is_html or is_doc):
+                    continue
+                tmp = None
+                if site_files or is_doc:
+                    tmp, size, sha = _stream_to_temp(record.content_stream(), tmp_dir)
+                    raw = b""
+                    if is_html:
+                        with tmp.open("rb") as fh_html:
+                            raw = fh_html.read(MAX_HTML_BYTES)
+                else:
                     raw = record.content_stream().read(MAX_HTML_BYTES)
+                if is_html:
+                    result.pages += 1
                     parser = LinkParser(url)
                     try:
                         parser.feed(raw.decode("utf-8", errors="replace"))
@@ -197,17 +225,25 @@ def scan_warcs(warcs: Iterable, extensions: Iterable[str], tmp_dir: Path) -> Sca
                         pass  # Keep whatever links were found before a parse error.
                     for link in parser.links:
                         result.links.setdefault(link, url)
-                elif is_document(url, ctype, extensions, disposition):
-                    tmp, size, sha = _stream_to_temp(record.content_stream(), tmp_dir)
-                    if stored.get(url) == sha:
-                        tmp.unlink()
-                        continue
+                if tmp is None:
+                    continue
+                keep_site = site_files and (url, sha) not in kept
+                keep_doc = is_doc and stored.get(url) != sha
+                if keep_site:
+                    kept.add((url, sha))
+                    result.site_files.append(Document(
+                        url=url, content_type=base_type(ctype), size=size, sha256=sha, source="site",
+                        captured_at=captured_at, tmp_path=tmp, filename=disposition_filename(disposition),
+                    ))
+                if keep_doc:
                     stored[url] = sha
                     result.documents.append(Document(
                         url=url, content_type=base_type(ctype), size=size, sha256=sha, source="crawl",
-                        captured_at=record.rec_headers.get_header("WARC-Date") or "", tmp_path=tmp,
+                        captured_at=captured_at, tmp_path=_link_copy(tmp, tmp_dir) if keep_site else tmp,
                         filename=disposition_filename(disposition),
                     ))
+                if not (keep_site or keep_doc):
+                    tmp.unlink()
     for doc in result.documents:
         doc.linked_from = result.links.get(doc.url, "")
     return result
@@ -300,7 +336,7 @@ def uncaptured_in_scope(scan: ScanResult, site: dict) -> List[Tuple[str, str]]:
     )
 
 
-def zip_path(url: str, used: Set[str], filename: str = "") -> str:
+def zip_path(url: str, used: Set[str], filename: str = "", html: bool = False) -> str:
     parts = urlsplit(url)
     path = unquote(parts.path)
     if filename:
@@ -308,7 +344,9 @@ def zip_path(url: str, used: Set[str], filename: str = "") -> str:
         path = path.rsplit("/", 1)[0] + "/" + filename
         parts = parts._replace(query="")
     if not path or path.endswith("/"):
-        path += "index"
+        path += "index.html" if html else "index"
+    elif html and PurePosixPath(path).suffix.lower() not in (".html", ".htm", ".xhtml"):
+        path += ".html"  # /about -> about.html, so it opens in a browser
     segments = [re.sub(r"[^\w.\-() ]+", "_", s).strip(" .") or "_" for s in path.split("/") if s]
     name = "/".join([(parts.hostname or "unknown").lower(), *segments])
     if parts.query:
@@ -327,8 +365,9 @@ def zip_path(url: str, used: Set[str], filename: str = "") -> str:
     return candidate
 
 
-def write_outputs(documents: List[Document], out_dir: Path, part_limit: int = ZIP_PART_LIMIT) -> List[Path]:
-    """Write the documents into zip file(s) and documents.csv. Returns the files written."""
+def write_outputs(documents: List[Document], out_dir: Path, part_limit: int = ZIP_PART_LIMIT,
+                  name: str = "documents") -> List[Path]:
+    """Write files into <name>.zip (or <name>-1.zip, ...) and <name>.csv. Returns the files written."""
     out_dir.mkdir(parents=True, exist_ok=True)
     groups: List[List[Document]] = []
     running = part_limit + 1
@@ -341,13 +380,14 @@ def write_outputs(documents: List[Document], out_dir: Path, part_limit: int = ZI
     written: List[Path] = []
     used: Set[str] = set()
     for i, group in enumerate(groups, 1):
-        zip_name = "documents.zip" if len(groups) == 1 else f"documents-{i}.zip"
+        zip_name = f"{name}.zip" if len(groups) == 1 else f"{name}-{i}.zip"
         with zipfile.ZipFile(out_dir / zip_name, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
             for doc in group:
-                doc.zip_file, doc.path = zip_name, zip_path(doc.url, used, doc.filename)
+                doc.zip_file = zip_name
+                doc.path = zip_path(doc.url, used, doc.filename, html=doc.content_type in HTML_TYPES)
                 zf.write(doc.tmp_path, doc.path)
         written.append(out_dir / zip_name)
-    with open(out_dir / "documents.csv", "w", newline="") as fh:
+    with open(out_dir / f"{name}.csv", "w", newline="") as fh:
         writer = csv.DictWriter(fh, CSV_FIELDS)
         writer.writeheader()
         for doc in documents:
@@ -356,7 +396,7 @@ def write_outputs(documents: List[Document], out_dir: Path, part_limit: int = ZI
                 "content_type": doc.content_type, "size_bytes": doc.size, "sha256": doc.sha256,
                 "source": doc.source, "captured_at": doc.captured_at,
             })
-    written.append(out_dir / "documents.csv")
+    written.append(out_dir / f"{name}.csv")
     return written
 
 
