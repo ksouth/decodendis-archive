@@ -11,7 +11,19 @@ The site's content belongs to its author. These captures are for archival refere
 
 ## About the archiver
 
-Archive whole websites for the record: every page as it looked, and every document they link to. List the sites in `sites.yaml`, commit, and GitHub Actions does the rest. Each capture is published as a GitHub release.
+Archive whole websites for the record: every page as it looked, and every document they link to. List the sites in `sites.yaml`, commit, and GitHub Actions does the rest. Each capture is published as a GitHub release, and a dashboard shows what has been captured, with a page list for every capture.
+
+## Guide
+
+This README covers setting up and using the archiver. The [guide](guide/README.md) has the detail:
+
+| Page | For |
+|---|---|
+| [sites-yaml.md](guide/sites-yaml.md) | Every setting in `sites.yaml`, with examples and error messages |
+| [runs.md](guide/runs.md) | When captures run, how long they take, limits, parts, permissions and cost |
+| [dashboard-and-page-list.md](guide/dashboard-and-page-list.md) | Every field on the dashboard and page lists, and how they're built |
+| [code.md](guide/code.md) | What each code file does, and the data passed between them |
+| [troubleshooting.md](guide/troubleshooting.md) | Fixing things that don't work |
 
 ## Use it
 
@@ -25,6 +37,7 @@ Archive whole websites for the record: every page as it looked, and every docume
    ```
 
 4. Commit. The **Archive sites** workflow starts within a minute. When it finishes, the capture is under **Releases**.
+5. Optional: to see the web dashboard and page lists, turn on **Settings → Pages → Deploy from a branch → main, /docs**. They appear at `https://<your-username>.github.io/<repository>/`.
 
 To capture something once without editing `sites.yaml`, go to **Actions → Archive sites → Run workflow** and paste a URL. The same form can re-capture a listed site on demand, and can set a page limit for a quick test.
 
@@ -44,7 +57,7 @@ Each capture is a release named after the site and date, with these files:
 
 ## Dashboard
 
-After every run, the workflow rebuilds a dashboard with one row per site:
+After every run, the workflow rebuilds a dashboard, as `DASHBOARD.md` in the repository and as a web page (`docs/index.html`) for GitHub Pages. It has one entry per site (a card on narrow screens, a table row on wide ones):
 
 | Column | Shows |
 |---|---|
@@ -72,7 +85,7 @@ Each capture also gets a page list at `captures/<site>/<capture>/` on the web pa
 3. **Other pages, by folder and subdomain**: the rest, grouped as `example.org/news/`, `blog.example.org/`, and so on.
 4. **Documents**: from the site, and from other websites, each with a **Download** link to that one file.
 
-Every entry shows its name, source address (a link to the live site), and these fields:
+Every entry shows its name and source address (a link to the live website), and these fields:
 
 | Field | Shows |
 |---|---|
@@ -80,7 +93,8 @@ Every entry shows its name, source address (a link to the live site), and these 
 | Type | Web page, PDF, Word document, Excel spreadsheet, and so on. |
 | Size | The file's size. |
 | Captured | When it was captured, in your local time. |
-| File | Where it's kept: the `.wacz` file name, and its path inside `site-files.zip` or `documents.zip`. |
+| File | Where it's kept: the `.wacz` file, and its path inside `site-files.zip` or `documents.zip`. Each file name is a link that downloads that file. |
+| Download | Documents only: downloads that one document. |
 
 A filter box at the top narrows the list as you type. Page lists need `web_page: true` and GitHub Pages turned on, and exist for captures made after this feature was added.
 
@@ -98,7 +112,7 @@ Pages are captured in a real browser ([Browsertrix Crawler](https://github.com/w
 
 ## `sites.yaml` settings
 
-Set any of these under `defaults:` for every site, or on one site to override. The `dashboard:` section is described above.
+Set any of these under `defaults:` for every site, or on one site to override. The `dashboard:` section is described above. A misspelled setting stops the run with a message naming it. [sites-yaml.md](guide/sites-yaml.md) has more detail and examples.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -132,11 +146,11 @@ Set any of these under `defaults:` for every site, or on one site to override. T
 - Documents are recognised by file extension, by type (PDF, Word, Excel and so on), or by the file name the server sends. Links on other websites are fetched when they end in a document extension or look like downloads (`download`, `attachment`, `/media/<number>/`, `/sites/…/files/`); anything that turns out to be a web page is skipped.
 - When a page limit is set, the sitemap is not used, so a quick test follows the starting page's own links.
 - Each part's `documents.zip` contains the documents found during that part.
-- Releases are public if the repository is public. Use a private repository for anything that shouldn't be.
+- Releases are public if the repository is public. Use a private repository for anything that shouldn't be; GitHub Actions minutes are unlimited for public repositories but limited for private ones (see [runs.md](guide/runs.md#cost)).
 
 ## Updating a copy
 
-A repository made from this template doesn't receive later changes to it. To update a copy, replace its `archiver/`, `tests/` and `.github/workflows/` folders with the ones from [ksouth/SCRAPE](https://github.com/ksouth/SCRAPE), and compare its `sites.yaml` comments and this README for new settings. Keep your own `sites.yaml` entries.
+A repository made from this template doesn't receive later changes to it. To update a copy, replace its `archiver/`, `tests/`, `guide/` and `.github/workflows/` folders with the ones from [ksouth/SCRAPE](https://github.com/ksouth/SCRAPE), and compare its `sites.yaml` comments and this README for new settings. Keep your own `sites.yaml` entries.
 
 ## Run the tests
 
@@ -147,4 +161,4 @@ pip install -r archiver/requirements.txt
 python -m unittest discover -s tests
 ```
 
-Capturing locally also needs Docker and the `gh` command-line tool: set `JOB` to one entry of `python -m archiver.plan`'s output and run `python -m archiver.run`.
+Capturing locally also needs Docker and the `gh` command-line tool; see [runs.md](guide/runs.md#running-on-your-own-computer).

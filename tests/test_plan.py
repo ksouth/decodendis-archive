@@ -75,6 +75,8 @@ class PlanTest(unittest.TestCase):
             site("ftp://a.example")
         with self.assertRaises(ConfigError):
             site("https://a.example", schedule="daily")
+        with self.assertRaises(ConfigError):
+            site("https://a.example", shedule="monthly")  # misspelled setting
         path = Path(tempfile.mkdtemp()) / "sites.yaml"
         path.write_text("sites:\n  - url: https://a.example\n  - url: https://www.a.example\n")
         with self.assertRaises(ConfigError):

@@ -56,6 +56,9 @@ def slugify(url: str) -> str:
 def normalise_site(raw: Dict[str, Any], defaults: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw, dict) or not raw.get("url"):
         raise ConfigError(f"Each site needs a url: {raw!r}")
+    unknown = set(raw) - set(DEFAULTS) - {"url", "name"}
+    if unknown:
+        raise ConfigError(f"{raw['url']}: unknown setting(s) {sorted(unknown)}; check the spelling")
     site = {**DEFAULTS, **defaults, **raw}
     url = str(site["url"]).strip()
     if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname:
