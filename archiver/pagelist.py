@@ -163,8 +163,8 @@ code {{ font-size:12px; word-break:break-all; }}
 <p class="notice"><strong>Format</strong> is <strong>WACZ</strong> for items in the web archive,
 <strong>Site</strong> for items in site-files.zip, or both. <strong>File</strong> shows where each is kept.<br>
 <strong>Links:</strong> each <strong>address</strong> opens the page on the live website, which may
-have changed since this capture. <strong>Download</strong> links under Documents download that file straight away
-from this archive. To see pages as they were captured, download the web archive (.wacz) from the
+have changed since this capture. <strong>Download</strong> links, and the file names under <strong>File</strong>,
+download that file straight away from this archive; a .zip or .wacz can be large. To see pages as they were captured, download the web archive (.wacz) from the
 <a href="{release_url}">release page</a> and open it at <a href="https://replayweb.page">replayweb.page</a>.</p>
 <label for="filter" class="lede">Filter this list</label>
 <input type="search" id="filter" placeholder="Type part of a name or address">
@@ -218,7 +218,12 @@ def _time(value: str) -> str:
 def _item(entry: Dict[str, Any], document: bool) -> str:
     esc = html.escape
     name = entry.get("title") or entry.get("name") or PurePosixPath(urlsplit(entry["url"]).path).name or entry["url"]
-    files = "<br>".join(f"<code>{esc(f)}</code>" for f in entry.get("files", []))
+    def file_html(f):
+        # Older indexes list plain strings; newer ones {"text", "url"} so each file name downloads that file.
+        if isinstance(f, dict) and f.get("url"):
+            return f'<a href="{esc(f["url"])}"><code>{esc(f["text"])}</code></a>'
+        return f"<code>{esc(f['text'] if isinstance(f, dict) else f)}</code>"
+    files = "<br>".join(file_html(f) for f in entry.get("files", []))
     rows = [("Format", f'<strong>{esc(entry.get("format", ""))}</strong>'), ("Type", esc(entry["type"])),
             ("Size", human(entry.get("size", 0))), ("Captured", _time(entry.get("captured_at", ""))), ("File", files)]
     if document:
@@ -329,6 +334,11 @@ def build_index(site: Dict[str, Any], slug: str, capture: str, part: int, releas
                 wacz_name: str, scan: Any, doc_assets: Dict[int, str], site_paths: Dict[str, str]) -> Dict[str, Any]:
     """The capture-index.json for one part. scan is an extract.ScanResult; doc_assets maps id(document) to the
     release file uploaded for it; site_paths maps a URL to its place in site-files.zip."""
+    def zip_file(location: str) -> Dict[str, str]:
+        """'site-files.zip › path' -> a link to download that zip."""
+        return {"text": location, "url": download_base + location.split(" › ", 1)[0]}
+
+    wacz = {"text": wacz_name, "url": download_base + wacz_name}
     pages_out = []
     for page in scan.page_list:
         in_site = page.url in site_paths
@@ -336,20 +346,22 @@ def build_index(site: Dict[str, Any], slug: str, capture: str, part: int, releas
             "url": page.url, "title": page.title, "type": type_name(page.content_type, page.url),
             "content_type": page.content_type, "size": page.size, "captured_at": page.captured_at,
             "format": format_label(True, in_site),
-            "files": [wacz_name] + ([site_paths[page.url]] if in_site else []),
+            "files": [wacz] + ([zip_file(site_paths[page.url])] if in_site else []),
         })
     docs_out = []
     for doc in scan.documents:
         in_wacz = doc.source == "crawl"
         in_site = doc.url in site_paths
         name = doc.filename or PurePosixPath(unquote(urlsplit(doc.url).path)).name or doc.url
-        files = ([wacz_name] if in_wacz else []) + [f"{doc.zip_file} › {doc.path}"] + ([site_paths[doc.url]] if in_site else [])
+        asset = doc_assets.get(id(doc))
+        files = ([{"text": asset, "url": download_base + asset}] if asset else []) + ([wacz] if in_wacz else [])
+        files += [zip_file(f"{doc.zip_file} › {doc.path}")] + ([zip_file(site_paths[doc.url])] if in_site else [])
         docs_out.append({
             "url": doc.url, "name": name, "type": type_name(doc.content_type, doc.filename or doc.url),
             "content_type": doc.content_type, "size": doc.size, "sha256": doc.sha256, "captured_at": doc.captured_at,
             "source": "offsite" if doc.source == "offsite" else "site", "linked_from": doc.linked_from,
             "format": format_label(in_wacz, in_site), "files": files,
-            "download_url": download_base + doc_assets[id(doc)] if id(doc) in doc_assets else "",
+            "download_url": download_base + asset if asset else "",
         })
     home = find_home(site["url"], [p.url for p in scan.page_list], scan.redirects)
     return {"version": INDEX_VERSION, "site": site["url"], "slug": slug, "capture": capture, "part": part,

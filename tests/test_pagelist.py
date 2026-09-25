@@ -76,10 +76,13 @@ class PageListTest(unittest.TestCase):
         index = self.index()
         home = index["pages"][0]
         self.assertEqual(home["format"], "WACZ + Site")
-        self.assertEqual(home["files"], ["capture.wacz", "site-files.zip › www.example.org/index.html"])
+        base = "https://github.com/me/r/releases/download/t/"
+        self.assertEqual(home["files"], [{"text": "capture.wacz", "url": base + "capture.wacz"},
+                                         {"text": "site-files.zip › www.example.org/index.html", "url": base + "site-files.zip"}])
         (doc,) = index["documents"]
         self.assertEqual((doc["format"], doc["type"], doc["name"]), ("WACZ + Site", "PDF", "plan.pdf"))
-        self.assertIn("documents.zip › www.example.org/files/plan.pdf", doc["files"])
+        self.assertIn({"text": "documents.zip › www.example.org/files/plan.pdf",
+                       "url": "https://github.com/me/r/releases/download/t/documents.zip"}, doc["files"])
         self.assertEqual(pagelist.format_label(True, False), "WACZ")
         self.assertEqual(pagelist.format_label(False, True), "Site")
         self.assertEqual(pagelist.format_label(False, False), "documents.zip")
@@ -90,6 +93,9 @@ class PageListTest(unittest.TestCase):
         self.assertEqual(index["documents"][0]["download_url"], "https://github.com/me/r/releases/download/t/doc-abc-plan.pdf")
         html = pagelist.render_page([index], "../../../")
         self.assertIn('<a class="download" href="https://github.com/me/r/releases/download/t/doc-abc-plan.pdf">Download PDF', html)
+        # File names are links too; the document's own file comes first.
+        self.assertIn('<a href="https://github.com/me/r/releases/download/t/doc-abc-plan.pdf"><code>doc-abc-plan.pdf</code></a>', html)
+        self.assertIn('<a href="https://github.com/me/r/releases/download/t/capture.wacz"><code>capture.wacz</code></a>', html)
 
     def test_page_sections(self):
         html = pagelist.render_page([self.index()], "../../../")
