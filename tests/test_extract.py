@@ -160,6 +160,9 @@ class ExtractTest(unittest.TestCase):
         self.assertEqual(extract.zip_path("https://x.org/", used, html=True), "x.org/index.html")
         self.assertEqual(extract.zip_path("https://x.org/about", used, html=True), "x.org/about.html")
         self.assertEqual(extract.zip_path("https://x.org/a.html", used, html=True), "x.org/a.html")
+        css = extract.zip_path("https://api.x.org/v2/css?f=a", used, content_type="text/css")
+        self.assertTrue(css.startswith("api.x.org/v2/css__") and css.endswith(".css"), css)
+        self.assertEqual(extract.zip_path("https://x.org/logo", used, content_type="image/png"), "x.org/logo.png")
 
     def test_disposition_filename(self):
         f = extract.disposition_filename

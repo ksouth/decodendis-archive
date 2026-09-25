@@ -8,6 +8,7 @@ Output:
 
 import csv
 import hashlib
+import mimetypes
 import os
 import re
 import tempfile
@@ -47,6 +48,10 @@ MAX_HTML_BYTES = 20_000_000
 # Deliberately narrow: a broader pattern (e.g. any "/media/") also matches ordinary news pages.
 DOWNLOAD_LINK_RE = re.compile(r"download|attachment|getfile|/media/\d+/|/sites/[^/]+/files/", re.IGNORECASE)
 HTML_TYPES = ("text/html", "application/xhtml+xml")
+# Extensions for extensionless URLs where mimetypes' choice is missing or unusual.
+TYPE_EXTENSIONS = {"text/css": ".css", "text/javascript": ".js", "application/javascript": ".js",
+                   "application/json": ".json", "image/jpeg": ".jpg", "image/svg+xml": ".svg",
+                   "font/woff2": ".woff2", "font/woff": ".woff", "text/plain": ".txt"}
 CSV_FIELDS = ["zip_file", "path", "url", "linked_from", "content_type", "size_bytes", "sha256", "source", "captured_at"]
 
 
@@ -336,7 +341,7 @@ def uncaptured_in_scope(scan: ScanResult, site: dict) -> List[Tuple[str, str]]:
     )
 
 
-def zip_path(url: str, used: Set[str], filename: str = "", html: bool = False) -> str:
+def zip_path(url: str, used: Set[str], filename: str = "", html: bool = False, content_type: str = "") -> str:
     parts = urlsplit(url)
     path = unquote(parts.path)
     if filename:
@@ -347,6 +352,9 @@ def zip_path(url: str, used: Set[str], filename: str = "", html: bool = False) -
         path += "index.html" if html else "index"
     elif html and PurePosixPath(path).suffix.lower() not in (".html", ".htm", ".xhtml"):
         path += ".html"  # /about -> about.html, so it opens in a browser
+    elif not PurePosixPath(path).suffix and content_type:
+        # e.g. a stylesheet served from /v2/css?f=... gets .css, so other tools recognise it
+        path += TYPE_EXTENSIONS.get(content_type) or mimetypes.guess_extension(content_type) or ""
     segments = [re.sub(r"[^\w.\-() ]+", "_", s).strip(" .") or "_" for s in path.split("/") if s]
     name = "/".join([(parts.hostname or "unknown").lower(), *segments])
     if parts.query:
@@ -384,7 +392,8 @@ def write_outputs(documents: List[Document], out_dir: Path, part_limit: int = ZI
         with zipfile.ZipFile(out_dir / zip_name, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
             for doc in group:
                 doc.zip_file = zip_name
-                doc.path = zip_path(doc.url, used, doc.filename, html=doc.content_type in HTML_TYPES)
+                doc.path = zip_path(doc.url, used, doc.filename, html=doc.content_type in HTML_TYPES,
+                                    content_type=doc.content_type)
                 zf.write(doc.tmp_path, doc.path)
         written.append(out_dir / zip_name)
     with open(out_dir / f"{name}.csv", "w", newline="") as fh:
