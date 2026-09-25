@@ -14,6 +14,8 @@ body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,
 main { max-width:1200px; margin:0 auto; padding:32px 16px 48px; }
 h1 { font-size:26px; margin:0 0 4px; } h2 { font-size:18px; margin:36px 0 4px; }
 p.lede, p.note { color:var(--muted); margin:0 0 20px; }
+p.notice { margin:0 0 16px; padding:10px 14px; border:1px solid var(--line); border-left:3px solid var(--accent);
+  border-radius:6px; background:var(--card); }
 a { color:var(--accent); }
 .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--card); }
 table { border-collapse:collapse; width:100%; min-width:900px; }
@@ -21,8 +23,10 @@ th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line)
 th { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }
 tr:last-child td { border-bottom:0; }
 td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-td.num { white-space:nowrap; } td.time { min-width:150px; }
+td.num, td.files { white-space:nowrap; } td.time { min-width:150px; }
 .lbl { display:none; }
+.hint { display:block; font-size:12px; color:var(--muted); font-weight:400; white-space:nowrap; }
+a .hint { color:inherit; opacity:.8; }
 .site { font-weight:600; } .url { display:block; font-size:13px; color:var(--muted); word-break:break-all; }
 .status { font-weight:600; }
 .complete { color:var(--ok); } .in-progress, .stopped { color:var(--run); } .failed, .failed a { color:var(--bad); }
@@ -46,9 +50,11 @@ td.num { white-space:nowrap; } td.time { min-width:150px; }
 <h1>Archive dashboard</h1>
 <p class="lede">Latest capture: <time datetime="2026-09-25T08:07:00Z">2026-09-25 08:07 UTC</time>. The daily check runs at <time data-time-only datetime="2026-01-01T03:17:00Z">03:17 UTC</time> each day. Every capture is under <a href="https://github.com/ksouth/decodendis-archive/releases">Releases</a>;
 open a <code>.wacz</code> file at <a href="https://replayweb.page">replayweb.page</a> to browse it.</p>
-<div class="wrap"><table><tr class=head><th>Site</th><th>Schedule</th><th>Last capture</th><th>Status</th><th class=num>Pages</th><th class=num>Documents</th><th class=num>Site files</th><th class=num>Size</th><th>Next run</th><th>Files</th></tr><tr><td class="name"><span class="site">decodendis</span><a class="url" href="https://decodendis.pplx.app/">https://decodendis.pplx.app/</a></td><td><span class="cell"><span class="lbl">Schedule</span><span class="val">once</span></span></td><td class="time"><span class="cell"><span class="lbl">Last capture</span><span class="val"><time datetime="2026-09-25T08:07:00Z">2026-09-25 08:07 UTC</time></span></span></td><td class="status complete"><span class="cell"><span class="lbl">Status</span><span class="val">Complete</span></span></td><td class="num"><span class="cell"><span class="lbl">Pages</span><span class="val">5</span></span></td><td class="num"><span class="cell"><span class="lbl">Documents</span><span class="val">0</span></span></td><td class="num"><a href="https://github.com/ksouth/decodendis-archive/releases/download/archive/decodendis/20260925T080356Z-part1/site-files.zip"><span class="lbl">Site files</span><span class="val">12</span></a></td><td class="num"><span class="cell"><span class="lbl">Size</span><span class="val">9.2 MB</span></span></td><td class=""><span class="cell"><span class="lbl">Next run</span><span class="val">none (once)</span></span></td><td class=""><a href="https://github.com/ksouth/decodendis-archive/releases/tag/archive/decodendis/20260925T080356Z-part1"><span class="lbl">Files</span><span class="val">open</span></a></td></tr></table></div>
-<p class="note"><strong>Documents</strong> and <strong>Site files</strong> download the zip of those files (or open the
-release page when a capture has several). <strong>Files</strong> opens the release with everything from that capture.
+<p class="notice"><strong>Downloads:</strong> clicking a number under <strong>Documents</strong> or
+<strong>Site files</strong> downloads a zip file straight away; its size is shown under the number.
+<strong>Open page</strong> under <strong>Files</strong> opens the capture's release page and downloads nothing.</p>
+<div class="wrap"><table><tr class=head><th>Site</th><th>Schedule</th><th>Last capture</th><th>Status</th><th class=num>Pages</th><th class=num>Documents</th><th class=num>Site files</th><th class=num>Size</th><th>Next run</th><th>Files</th></tr><tr><td class="name"><span class="site">decodendis</span><a class="url" href="https://decodendis.pplx.app/">https://decodendis.pplx.app/</a></td><td><span class="cell"><span class="lbl">Schedule</span><span class="val">once</span></span></td><td class="time"><span class="cell"><span class="lbl">Last capture</span><span class="val"><time datetime="2026-09-25T08:07:00Z">2026-09-25 08:07 UTC</time></span></span></td><td class="status complete"><span class="cell"><span class="lbl">Status</span><span class="val">Complete</span></span></td><td class="num"><span class="cell"><span class="lbl">Pages</span><span class="val">5</span></span></td><td class="num"><span class="cell"><span class="lbl">Documents</span><span class="val">0</span></span></td><td class="num"><a href="https://github.com/ksouth/decodendis-archive/releases/download/archive/decodendis/20260925T080356Z-part1/site-files.zip"><span class="lbl">Site files</span><span class="val">12<span class="hint">download zip, 4.6 MB</span></span></a></td><td class="num"><span class="cell"><span class="lbl">Size</span><span class="val">9.2 MB</span></span></td><td class=""><span class="cell"><span class="lbl">Next run</span><span class="val">none (once)</span></span></td><td class="files"><a href="https://github.com/ksouth/decodendis-archive/releases/tag/archive/decodendis/20260925T080356Z-part1"><span class="lbl">Files</span><span class="val">open page</span></a></td></tr></table></div>
+<p class="note">When a capture has several zips, the number opens its release page instead of downloading.
 Counts and size cover every part of the latest capture; documents include those fetched from other websites.
 Times are in your local time.</p>
 </main>
