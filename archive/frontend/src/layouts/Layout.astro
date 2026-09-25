@@ -1,0 +1,90 @@
+---
+interface Props {
+	title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="description" content="SCRAPE - Document search platform" />
+		<meta name="viewport" content="width=device-width" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+		<style is:global>
+			:root {
+				--accent: #667eea;
+				--accent-dark: #764ba2;
+				--text-color: #333;
+				--bg-color: #fff;
+				--border-color: #eee;
+			}
+
+			html {
+				font-family: system-ui, sans-serif;
+				background: var(--bg-color);
+				color: var(--text-color);
+			}
+
+			body {
+				margin: 0;
+				padding: 0;
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			a {
+				color: var(--accent);
+				text-decoration: none;
+			}
+
+			a:hover {
+				text-decoration: underline;
+			}
+
+			button {
+				background: var(--accent);
+				color: white;
+				border: none;
+				padding: 0.5rem 1rem;
+				border-radius: 4px;
+				cursor: pointer;
+				font-size: 1rem;
+			}
+
+			button:hover {
+				background: var(--accent-dark);
+			}
+
+			input {
+				padding: 0.5rem;
+				border: 1px solid var(--border-color);
+				border-radius: 4px;
+				font-size: 1rem;
+			}
+
+			input:focus {
+				outline: none;
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<nav style="text-align: center; padding: 1rem; border-bottom: 1px solid var(--border-color);">
+				<a href="/" style="font-weight: bold; font-size: 1.2rem;">SCRAPE</a>
+			</nav>
+		</header>
+		<slot />
+		<footer style="text-align: center; padding: 2rem; border-top: 1px solid var(--border-color); color: #999;">
+			<p>&copy; 2024 SCRAPE Project. All rights reserved.</p>
+		</footer>
+	</body>
+</html>

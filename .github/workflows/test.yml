@@ -1,0 +1,19 @@
+name: Test
+
+on:
+  push:
+    paths: ["archiver/**", "tests/**", "sites.yaml", ".github/workflows/test.yml"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r archiver/requirements.txt
+      - name: Check sites.yaml
+        run: python -c "from archiver.config import load_sites; [print(s['slug'], s['schedule'], s['url']) for s in load_sites('sites.yaml')]"
+      - run: python -m unittest discover -s tests -v

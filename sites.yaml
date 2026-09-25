@@ -1,0 +1,26 @@
+# Sites to archive. Add a site, commit, and the "Archive sites" workflow captures it.
+# Each capture is published as a GitHub release: a .wacz web archive you can browse at
+# https://replayweb.page, plus documents.zip with every linked file. See README.md.
+
+# Settings here apply to every site unless the site sets its own.
+defaults:
+  schedule: once            # once | weekly | monthly | off
+  scope: host               # host: this host only | domain: include subdomains | prefix: only URLs under the starting path
+  offsite_documents: true   # also download documents the site links to on other websites
+  respect_robots: true      # obey each site's robots.txt
+  page_limit: 0             # stop after this many pages (0 = no limit)
+
+sites:
+  # Examples; remove the # to use one.
+  #
+  # - url: https://www.example.gov.au
+  #
+  # - url: https://www.example.gov.au/publications/
+  #   scope: prefix
+  #   schedule: monthly
+  #
+  # - url: https://blog.example.org
+  #   name: example-blog      # optional short name used in release titles
+  #   exclude:                # optional: skip pages whose URL matches a regular expression
+  #     - /tag/
+  #     - \?replytocom=

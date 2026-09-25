@@ -1,0 +1,68 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SearchBox from '../components/SearchBox.astro';
+---
+
+<Layout title="SCRAPE - Document Search">
+	<main>
+		<div class="container">
+			<h1>SCRAPE</h1>
+			<p class="subtitle">Semantic search over your documents</p>
+
+			<SearchBox />
+
+			<section class="info">
+				<h2>How it works</h2>
+				<ol>
+					<li>Enter a search query in natural language</li>
+					<li>Results are ranked by semantic similarity</li>
+					<li>Click a result to view the full document</li>
+					<li>Download or share documents you find</li>
+				</ol>
+			</section>
+		</div>
+	</main>
+</Layout>
+
+<style>
+	main {
+		padding: 2rem;
+		max-width: 1200px;
+		margin: 0 auto;
+	}
+
+	.container {
+		text-align: center;
+	}
+
+	h1 {
+		font-size: 3rem;
+		margin: 1rem 0;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+
+	.subtitle {
+		font-size: 1.5rem;
+		color: #666;
+		margin-bottom: 2rem;
+	}
+
+	.info {
+		margin-top: 3rem;
+		padding: 2rem;
+		background: #f5f5f5;
+		border-radius: 8px;
+		text-align: left;
+	}
+
+	.info h2 {
+		margin-top: 0;
+	}
+
+	.info ol {
+		line-height: 1.8;
+	}
+</style>

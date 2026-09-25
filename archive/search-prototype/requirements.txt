@@ -1,0 +1,29 @@
+# Backend dependencies
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Data processing
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# PDF processing
+PyPDF2==3.0.1
+pdf2image==1.16.3
+pytesseract==0.3.10  # Requires Tesseract installed: brew install tesseract
+
+# Embeddings & Vector DB
+chromadb==0.4.14
+sentence-transformers==2.2.2
+numpy==1.24.3
+
+# Optional: OpenAI embeddings
+openai==1.3.0  # Uncomment if using OpenAI embeddings
+
+# Utilities
+python-dotenv==1.0.0
+pyyaml==6.0.1
+python-dateutil==2.8.2
+aiofiles==23.2.1

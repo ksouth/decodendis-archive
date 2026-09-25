@@ -1,0 +1,103 @@
+name: Archive sites
+
+on:
+  # Capture new sites as soon as sites.yaml changes.
+  push:
+    branches: [main]
+    paths: [sites.yaml]
+  # Daily check for weekly/monthly sites that are due, and captures that need another part.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Capture this site from sites.yaml now (its name or URL), even if it isn't due"
+        required: false
+      url:
+        description: "Or capture any URL once now, with the default settings"
+        required: false
+      page_limit:
+        description: "Optional page limit for this run (0 = no limit)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: write
+  actions: write  # to start the next run when a capture needs another part
+
+# One run at a time, so two runs never continue the same partial capture.
+concurrency:
+  group: archive
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r archiver/requirements.txt
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_SITE: ${{ inputs.site }}
+          INPUT_URL: ${{ inputs.url }}
+          INPUT_PAGE_LIMIT: ${{ inputs.page_limit }}
+        run: |
+          gh release list --limit 1000 --json tagName,createdAt,isPrerelease > releases.json
+          python -m archiver.plan --releases releases.json >> "$GITHUB_OUTPUT"
+
+  archive:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    name: ${{ matrix.slug }} (part ${{ matrix.part }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r archiver/requirements.txt
+      - name: Free disk space for large captures
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Capture and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB: ${{ toJSON(matrix) }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: python -m archiver.run
+
+  # A large site stops at the time or size limit and is published as an incomplete part.
+  # Start the next part straight away rather than waiting for the daily run. Only when every
+  # capture in this run succeeded, so a site that keeps failing can't restart forever.
+  continue:
+    needs: [plan, archive]
+    if: needs.archive.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r archiver/requirements.txt
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 1000 --json tagName,createdAt,isPrerelease > releases.json
+          python -m archiver.plan --releases releases.json --resume-only >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run archive.yml --ref "${{ github.ref_name }}"
